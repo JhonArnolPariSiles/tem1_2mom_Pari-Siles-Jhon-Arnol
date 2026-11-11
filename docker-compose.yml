@@ -3,6 +3,7 @@ name: superstore-hive
 services:
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    container_name: superstore-namenode
     environment:
       CLUSTER_NAME: superstore
     env_file: ./hadoop-hive.env
@@ -14,6 +15,7 @@ services:
 
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    container_name: superstore-datanode
     env_file: ./hadoop-hive.env
     environment:
       SERVICE_PRECONDITION: namenode:50070
@@ -22,11 +24,13 @@ services:
 
   hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
+    container_name: superstore-postgresql
     volumes:
       - metastore:/var/lib/postgresql/data
 
   hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: superstore-metastore
     env_file: ./hadoop-hive.env
     command: /opt/hive/bin/hive --service metastore
     environment:
@@ -34,6 +38,7 @@ services:
 
   hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: superstore-hive-server
     env_file: ./hadoop-hive.env
     environment:
       SERVICE_PRECONDITION: hive-metastore:9083
