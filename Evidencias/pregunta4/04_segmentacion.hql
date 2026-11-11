@@ -1,929 +1,110 @@
-0: jdbc:hive2://localhost:10000/default> WITH clientes AS (
-. . . . . . . . . . . . . . . . . . . .>     SELECT
-. . . . . . . . . . . . . . . . . . . .>         TRIM(customer_id) AS customer_id,
-. . . . . . . . . . . . . . . . . . . .>         MAX(customer_name) AS customer_name,
-. . . . . . . . . . . . . . . . . . . .>         MAX(order_date) AS ultima_compra,
-. . . . . . . . . . . . . . . . . . . .>         COUNT(DISTINCT order_id) AS frecuencia,
-. . . . . . . . . . . . . . . . . . . .>         SUM(sales) AS importe_total
-. . . . . . . . . . . . . . . . . . . .>     FROM superstore_analitica
-. . . . . . . . . . . . . . . . . . . .>     WHERE customer_id IS NOT NULL
-. . . . . . . . . . . . . . . . . . . .>       AND TRIM(customer_id) <> ''
-. . . . . . . . . . . . . . . . . . . .>       AND order_id IS NOT NULL
-. . . . . . . . . . . . . . . . . . . .>       AND TRIM(order_id) <> ''
-. . . . . . . . . . . . . . . . . . . .>       AND order_date IS NOT NULL
-. . . . . . . . . . . . . . . . . . . .>       AND sales > 0
-. . . . . . . . . . . . . . . . . . . .>     GROUP BY TRIM(customer_id)
-. . . . . . . . . . . . . . . . . . . .> ),
-. . . . . . . . . . . . . . . . . . . .> referencia AS (
-. . . . . . . . . . . . . . . . . . . .>     SELECT MAX(order_date) AS fecha_referencia
-. . . . . . . . . . . . . . . . . . . .>     FROM superstore_analitica
-. . . . . . . . . . . . . . . . . . . .> ),
-. . . . . . . . . . . . . . . . . . . .> combinados AS (
-. . . . . . . . . . . . . . . . . . . .>     SELECT
-. . . . . . . . . . . . . . . . . . . .>         customer_id,
-. . . . . . . . . . . . . . . . . . . .>         customer_name,
-. . . . . . . . . . . . . . . . . . . .>         ultima_compra,
-. . . . . . . . . . . . . . . . . . . .>         frecuencia,
-. . . . . . . . . . . . . . . . . . . .>         importe_total,
-. . . . . . . . . . . . . . . . . . . .>         CAST(NULL AS DATE) AS referencia_global
-. . . . . . . . . . . . . . . . . . . .>     FROM clientes
-. . . . . . . . . . . . . . . . . . . .> 
-. . . . . . . . . . . . . . . . . . . .>     UNION ALL
-. . . . . . . . . . . . . . . . . . . .> 
-. . . . . . . . . . . . . . . . . . . .>     SELECT
-. . . . . . . . . . . . . . . . . . . .>         CAST(NULL AS STRING),
-. . . . . . . . . . . . . . . . . . . .>         CAST(NULL AS STRING),
-. . . . . . . . . . . . . . . . . . . .>         CAST(NULL AS DATE),
-. . . . . . . . . . . . . . . . . . . .>         CAST(NULL AS BIGINT),
-. . . . . . . . . . . . . . . . . . . .>         CAST(NULL AS DECIMAL(28,4)),
-. . . . . . . . . . . . . . . . . . . .>         fecha_referencia
-. . . . . . . . . . . . . . . . . . . .>     FROM referencia
-. . . . . . . . . . . . . . . . . . . .> ),
-. . . . . . . . . . . . . . . . . . . .> con_referencia AS (
-. . . . . . . . . . . . . . . . . . . .>     SELECT
-. . . . . . . . . . . . . . . . . . . .>         *,
-. . . . . . . . . . . . . . . . . . . .>         MAX(referencia_global) OVER () AS fecha_referencia
-. . . . . . . . . . . . . . . . . . . .>     FROM combinados
-. . . . . . . . . . . . . . . . . . . .> ),
-. . . . . . . . . . . . . . . . . . . .> metricas AS (
-. . . . . . . . . . . . . . . . . . . .>     SELECT
-. . . . . . . . . . . . . . . . . . . .>         customer_id,
-. . . . . . . . . . . . . . . . . . . .>         customer_name,
-. . . . . . . . . . . . . . . . . . . .>         ultima_compra,
-. . . . . . . . . . . . . . . . . . . .>         frecuencia,
-. . . . . . . . . . . . . . . . . . . .>         importe_total,
-. . . . . . . . . . . . . . . . . . . .>         fecha_referencia,
-. . . . . . . . . . . . . . . . . . . .>         DATEDIFF(fecha_referencia, ultima_compra) AS recencia
-. . . . . . . . . . . . . . . . . . . .>     FROM con_referencia
-. . . . . . . . . . . . . . . . . . . .>     WHERE customer_id IS NOT NULL
-. . . . . . . . . . . . . . . . . . . .> ),
-. . . . . . . . . . . . . . . . . . . .> puntuaciones AS (
-. . . . . . . . . . . . . . . . . . . .>     SELECT
-. . . . . . . . . . . . . . . . . . . .>         *,
-. . . . . . . . . . . . . . . . . . . .>         NTILE(5) OVER (
-. . . . . . . . . . . . . . . . . . . .>             ORDER BY recencia DESC, customer_id
-. . . . . . . . . . . . . . . . . . . .>         ) AS r_score,
-. . . . . . . . . . . . . . . . . . . .>         NTILE(5) OVER (
-. . . . . . . . . . . . . . . . . . . .>             ORDER BY frecuencia ASC, customer_id
-. . . . . . . . . . . . . . . . . . . .>         ) AS f_score,
-. . . . . . . . . . . . . . . . . . . .>         NTILE(5) OVER (
-. . . . . . . . . . . . . . . . . . . .>             ORDER BY importe_total ASC, customer_id
-. . . . . . . . . . . . . . . . . . . .>         ) AS m_score
-. . . . . . . . . . . . . . . . . . . .>     FROM metricas
-. . . . . . . . . . . . . . . . . . . .> )
-. . . . . . . . . . . . . . . . . . . .> SELECT
-. . . . . . . . . . . . . . . . . . . .>     customer_id,
-. . . . . . . . . . . . . . . . . . . .>     customer_name,
-. . . . . . . . . . . . . . . . . . . .>     fecha_referencia,
-. . . . . . . . . . . . . . . . . . . .>     ultima_compra,
-. . . . . . . . . . . . . . . . . . . .>     recencia AS recency_dias,
-. . . . . . . . . . . . . . . . . . . .>     frecuencia AS frequency_ordenes,
-. . . . . . . . . . . . . . . . . . . .>     ROUND(importe_total, 2) AS monetary_ventas,
-. . . . . . . . . . . . . . . . . . . .>     r_score,
-. . . . . . . . . . . . . . . . . . . .>     f_score,
-. . . . . . . . . . . . . . . . . . . .>     m_score,
-. . . . . . . . . . . . . . . . . . . .>     CONCAT(
-. . . . . . . . . . . . . . . . . . . .>         CAST(r_score AS STRING),
-. . . . . . . . . . . . . . . . . . . .>         CAST(f_score AS STRING),
-. . . . . . . . . . . . . . . . . . . .>         CAST(m_score AS STRING)
-. . . . . . . . . . . . . . . . . . . .>     ) AS codigo_rfm,
-. . . . . . . . . . . . . . . . . . . .>     r_score + f_score + m_score AS puntuacion_total,
-. . . . . . . . . . . . . . . . . . . .>     CASE
-. . . . . . . . . . . . . . . . . . . .>         WHEN r_score <= 2
-. . . . . . . . . . . . . . . . . . . .>          AND (f_score >= 4 OR m_score >= 4)
-. . . . . . . . . . . . . . . . . . . .>             THEN 'EN RIESGO - ANTES VALIOSO'
-. . . . . . . . . . . . . . . . . . . .>         WHEN r_score <= 2
-. . . . . . . . . . . . . . . . . . . .>             THEN 'EN RIESGO DE ABANDONO'
-. . . . . . . . . . . . . . . . . . . .>         WHEN r_score >= 4
-. . . . . . . . . . . . . . . . . . . .>          AND f_score >= 4
-. . . . . . . . . . . . . . . . . . . .>          AND m_score >= 4
-. . . . . . . . . . . . . . . . . . . .>             THEN 'ALTO VALOR'
-. . . . . . . . . . . . . . . . . . . .>         WHEN f_score >= 4
-. . . . . . . . . . . . . . . . . . . .>             THEN 'RECURRENTE'
-. . . . . . . . . . . . . . . . . . . .>         WHEN r_score >= 4 AND f_score <= 2
-. . . . . . . . . . . . . . . . . . . .>             THEN 'RECIENTE - BAJA FRECUENCIA'
-. . . . . . . . . . . . . . . . . . . .>         ELSE 'CLIENTE EN DESARROLLO'
-. . . . . . . . . . . . . . . . . . . .>     END AS segmento
-. . . . . . . . . . . . . . . . . . . .> FROM puntuaciones
-. . . . . . . . . . . . . . . . . . . .> ORDER BY puntuacion_total DESC, monetary_ventas DESC;
-WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| SE-20110     | Sanjit Engle            | 2017-12-30        | 2017-12-21     | 9             | 11                 | 12209.44         | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| JL-15835     | John Lee                | 2017-12-30        | 2017-12-09     | 21            | 11                 | 9799.92          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| PK-19075     | Pete Kriz               | 2017-12-30        | 2017-12-21     | 9             | 12                 | 8646.93          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| HM-14860     | Harry Marie             | 2017-12-30        | 2017-12-28     | 2             | 10                 | 8236.76          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| LC-16885     | Lena Creighton          | 2017-12-30        | 2017-12-14     | 16            | 12                 | 7663.13          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| PO-18850     | Patrick O'Brill         | 2017-12-30        | 2017-12-26     | 4             | 11                 | 7473.83          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| DR-12880     | Dan Reichenbach         | 2017-12-30        | 2017-12-27     | 3             | 9                  | 6528.03          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| JG-15160     | James Galang            | 2017-12-30        | 2017-12-29     | 1             | 11                 | 6366.39          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| WB-21850     | William Brown           | 2017-12-30        | 2017-12-10     | 20            | 11                 | 6160.10          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| QJ-19255     | Quincy Jones            | 2017-12-30        | 2017-12-05     | 25            | 9                  | 6108.34          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| BF-11170     | Ben Ferrer              | 2017-12-30        | 2017-12-14     | 16            | 11                 | 5907.97          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| SM-20950     | Suzanne McNair          | 2017-12-30        | 2017-12-05     | 25            | 12                 | 5563.39          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| MH-18115     | Mick Hernandez          | 2017-12-30        | 2017-12-25     | 5             | 9                  | 5503.09          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| EP-13915     | Emily Phan              | 2017-12-30        | 2017-12-18     | 12            | 17                 | 5478.06          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| MP-18175     | Mike Pelletier          | 2017-12-30        | 2017-12-14     | 16            | 9                  | 5087.92          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| AH-10210     | Alan Hwang              | 2017-12-30        | 2017-12-24     | 6             | 9                  | 4805.34          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| DK-13225     | Dean Katz               | 2017-12-30        | 2017-12-20     | 10            | 9                  | 4802.39          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| RA-19915     | Russell Applegate       | 2017-12-30        | 2017-12-18     | 12            | 9                  | 4793.54          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| RB-19465     | Rick Bensley            | 2017-12-30        | 2017-12-21     | 9             | 12                 | 4715.47          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| TP-21130     | Theone Pippenger        | 2017-12-30        | 2017-12-22     | 8             | 9                  | 4454.06          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| AI-10855     | Arianne Irving          | 2017-12-30        | 2017-12-17     | 13            | 10                 | 4375.79          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| GZ-14470     | Gary Zandusky           | 2017-12-30        | 2017-12-23     | 7             | 9                  | 4355.15          | 5        | 5        | 5        | 555         | 15                | ALTO VALOR                  |
-| AB-10105     | Adrian Barton           | 2017-12-30        | 2017-11-19     | 41            | 10                 | 14473.57         | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| KL-16645     | Ken Lonsdale            | 2017-12-30        | 2017-11-13     | 47            | 12                 | 14175.23         | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| GT-14710     | Greg Tran               | 2017-12-30        | 2017-11-24     | 36            | 11                 | 11820.12         | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| ME-17320     | Maria Etezadi           | 2017-12-30        | 2017-11-18     | 42            | 10                 | 10663.73         | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| JE-15715     | Joe Elijah              | 2017-12-30        | 2017-11-14     | 46            | 10                 | 8697.84          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| NC-18535     | Nick Crebassa           | 2017-12-30        | 2017-12-24     | 6             | 7                  | 8241.74          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| BM-11650     | Brian Moss              | 2017-12-30        | 2017-11-27     | 33            | 11                 | 7294.19          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| FH-14365     | Fred Hopkins            | 2017-12-30        | 2017-12-25     | 5             | 8                  | 6987.20          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| BB-11545     | Brenda Bowman           | 2017-12-30        | 2017-12-02     | 28            | 9                  | 6765.73          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| JE-15745     | Joel Eaton              | 2017-12-30        | 2017-11-09     | 51            | 13                 | 6760.82          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| YS-21880     | Yana Sorensen           | 2017-12-30        | 2017-12-21     | 9             | 8                  | 6720.44          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| MJ-17740     | Max Jones               | 2017-12-30        | 2017-12-08     | 22            | 7                  | 6320.75          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| BH-11710     | Brosina Hoffman         | 2017-12-30        | 2017-12-07     | 23            | 8                  | 6255.35          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| VW-21775     | Victoria Wilson         | 2017-12-30        | 2017-12-02     | 28            | 10                 | 6134.04          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| CB-12025     | Cassandra Brandow       | 2017-12-30        | 2017-11-13     | 47            | 10                 | 6076.14          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| SC-20380     | Shahid Collister        | 2017-12-30        | 2017-11-30     | 30            | 9                  | 5992.54          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| KH-16690     | Kristen Hastings        | 2017-12-30        | 2017-12-28     | 2             | 7                  | 5990.80          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| KH-16510     | Keith Herrera           | 2017-12-30        | 2017-12-08     | 22            | 7                  | 5952.86          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| BD-11320     | Bill Donatelli          | 2017-12-30        | 2017-11-27     | 33            | 12                 | 5718.52          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| SP-20620     | Stefania Perrino        | 2017-12-30        | 2017-11-13     | 47            | 9                  | 5440.32          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| LW-17215     | Luke Weiss              | 2017-12-30        | 2017-12-09     | 21            | 7                  | 5420.51          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| TT-21460     | Tonja Turnell           | 2017-12-30        | 2017-12-18     | 12            | 7                  | 5364.81          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| MW-18220     | Mitch Webber            | 2017-12-30        | 2017-12-13     | 17            | 7                  | 5341.90          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| RP-19390     | Resi P?lking            | 2017-12-30        | 2017-11-27     | 33            | 12                 | 5153.08          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| KL-16555     | Kelly Lampkin           | 2017-12-30        | 2017-12-14     | 16            | 8                  | 5016.49          | 5        | 4        | 5        | 545         | 14                | ALTO VALOR                  |
-| ES-14080     | Erin Smith              | 2017-12-30        | 2017-12-02     | 28            | 9                  | 4657.92          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| SC-20050     | Sample Company A        | 2017-12-30        | 2017-11-20     | 40            | 9                  | 4624.57          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| ND-18370     | Natalie DeCherney       | 2017-12-30        | 2017-12-03     | 27            | 9                  | 4326.14          | 4        | 5        | 5        | 455         | 14                | ALTO VALOR                  |
-| CC-12220     | Chris Cortes            | 2017-12-30        | 2017-12-10     | 20            | 12                 | 3913.42          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| AT-10735     | Annie Thurman           | 2017-12-30        | 2017-12-17     | 13            | 10                 | 3831.86          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| MM-17920     | Michael Moore           | 2017-12-30        | 2017-12-23     | 7             | 11                 | 3794.08          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| BP-11185     | Ben Peterman            | 2017-12-30        | 2017-12-29     | 1             | 9                  | 3675.86          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| CS-12400     | Christopher Schild      | 2017-12-30        | 2017-12-28     | 2             | 9                  | 3651.86          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| DK-12835     | Damala Kotsonis         | 2017-12-30        | 2017-12-09     | 21            | 12                 | 3256.48          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| HG-14965     | Henry Goldwyn           | 2017-12-30        | 2017-12-07     | 23            | 12                 | 3247.64          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| CS-12355     | Christine Sundaresam    | 2017-12-30        | 2017-12-24     | 6             | 11                 | 3202.16          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| CS-11950     | Carlos Soltero          | 2017-12-30        | 2017-12-05     | 25            | 11                 | 3036.55          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| LS-16975     | Lindsay Shagiari        | 2017-12-30        | 2017-12-10     | 20            | 9                  | 2988.67          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| DS-13180     | David Smith             | 2017-12-30        | 2017-12-07     | 23            | 9                  | 2881.81          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| CC-12430     | Chuck Clark             | 2017-12-30        | 2017-12-30     | 0             | 10                 | 2870.05          | 5        | 5        | 4        | 554         | 14                | ALTO VALOR                  |
-| SV-20365     | Seth Vernon             | 2017-12-30        | 2017-09-20     | 101           | 10                 | 11470.95         | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| JD-16150     | Justin Deggeller        | 2017-12-30        | 2017-11-19     | 41            | 8                  | 8828.03          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| DR-12940     | Daniel Raglin           | 2017-12-30        | 2017-11-10     | 50            | 8                  | 8350.87          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| SB-20290     | Sean Braxton            | 2017-12-30        | 2017-11-13     | 47            | 7                  | 8057.89          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| ZC-21910     | Zuschuss Carroll        | 2017-12-30        | 2017-11-06     | 54            | 13                 | 8025.71          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| JE-15610     | Jim Epp                 | 2017-12-30        | 2017-11-12     | 48            | 7                  | 7754.98          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| PP-18955     | Paul Prost              | 2017-12-30        | 2017-09-24     | 97            | 10                 | 7252.61          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| Dp-13240     | Dean percer             | 2017-12-30        | 2017-10-07     | 84            | 11                 | 7198.76          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| AR-10540     | Andy Reiter             | 2017-12-30        | 2017-12-24     | 6             | 6                  | 6608.45          | 5        | 3        | 5        | 535         | 13                | CLIENTE EN DESARROLLO       |
-| AD-10180     | Alan Dominguez          | 2017-12-30        | 2017-12-01     | 29            | 8                  | 6106.88          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| RB-19795     | Ross Baird              | 2017-12-30        | 2017-11-28     | 32            | 8                  | 5633.32          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| NP-18325     | Naresj Patel            | 2017-12-30        | 2017-12-05     | 25            | 6                  | 5529.62          | 5        | 3        | 5        | 535         | 13                | CLIENTE EN DESARROLLO       |
-| AC-10450     | Amy Cox                 | 2017-12-30        | 2017-12-19     | 11            | 7                  | 5527.85          | 5        | 3        | 5        | 535         | 13                | CLIENTE EN DESARROLLO       |
-| YC-21895     | Yoseph Carroll          | 2017-12-30        | 2017-12-26     | 4             | 5                  | 5454.35          | 5        | 3        | 5        | 535         | 13                | CLIENTE EN DESARROLLO       |
-| LR-16915     | Lena Radford            | 2017-12-30        | 2017-12-04     | 26            | 6                  | 5142.89          | 5        | 3        | 5        | 535         | 13                | CLIENTE EN DESARROLLO       |
-| TT-21070     | Ted Trevino             | 2017-12-30        | 2017-11-29     | 31            | 7                  | 4915.60          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| KM-16720     | Kunst Miller            | 2017-12-30        | 2017-12-02     | 28            | 8                  | 4909.47          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| JK-15730     | Joe Kamberova           | 2017-12-30        | 2017-10-07     | 84            | 10                 | 4867.20          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| SA-20830     | Sue Ann Reed            | 2017-12-30        | 2017-10-28     | 63            | 10                 | 4767.34          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| KT-16480     | Kean Thornton           | 2017-12-30        | 2017-09-21     | 100           | 10                 | 4642.09          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| DB-13060     | Dave Brooks             | 2017-12-30        | 2017-12-14     | 16            | 7                  | 4531.65          | 5        | 3        | 5        | 535         | 13                | CLIENTE EN DESARROLLO       |
-| AG-10900     | Arthur Gainer           | 2017-12-30        | 2017-09-25     | 96            | 10                 | 4510.80          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| LC-16930     | Linda Cazamias          | 2017-12-30        | 2017-11-19     | 41            | 8                  | 4492.95          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| SC-20770     | Stewart Carmichael      | 2017-12-30        | 2017-11-19     | 41            | 7                  | 4492.66          | 4        | 4        | 5        | 445         | 13                | ALTO VALOR                  |
-| MA-17560     | Matt Abelman            | 2017-12-30        | 2017-10-27     | 64            | 11                 | 4299.16          | 3        | 5        | 5        | 355         | 13                | RECURRENTE                  |
-| FH-14275     | Frank Hawley            | 2017-12-30        | 2017-11-23     | 37            | 10                 | 4256.27          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| DM-13345     | Denise Monton           | 2017-12-30        | 2017-12-08     | 22            | 8                  | 4074.47          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| FP-14320     | Frank Preis             | 2017-12-30        | 2017-12-07     | 23            | 8                  | 4046.75          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| LF-17185     | Luke Foster             | 2017-12-30        | 2017-12-08     | 22            | 7                  | 3930.51          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| MC-17845     | Michael Chen            | 2017-12-30        | 2017-12-29     | 1             | 7                  | 3805.71          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| FM-14290     | Frank Merwin            | 2017-12-30        | 2017-11-24     | 36            | 9                  | 3736.20          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| HG-15025     | Hunter Glantz           | 2017-12-30        | 2017-12-24     | 6             | 7                  | 3690.28          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| LP-17095     | Liz Preis               | 2017-12-30        | 2017-12-21     | 9             | 7                  | 3653.40          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| EB-13705     | Ed Braxton              | 2017-12-30        | 2017-11-12     | 48            | 9                  | 3644.98          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| JP-15520     | Jeremy Pistek           | 2017-12-30        | 2017-12-22     | 8             | 7                  | 3635.59          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| SZ-20035     | Sam Zeldin              | 2017-12-30        | 2017-11-25     | 35            | 11                 | 3625.33          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| PW-19030     | Pauline Webber          | 2017-12-30        | 2017-11-14     | 46            | 10                 | 3454.92          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| SH-19975     | Sally Hughsby           | 2017-12-30        | 2017-12-01     | 29            | 13                 | 3406.84          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| SF-20965     | Sylvia Foulston         | 2017-12-30        | 2017-11-12     | 48            | 9                  | 3336.54          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| DC-12850     | Dan Campbell            | 2017-12-30        | 2017-11-23     | 37            | 9                  | 3336.17          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| DK-13375     | Dennis Kane             | 2017-12-30        | 2017-12-11     | 19            | 8                  | 3318.49          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| AS-10090     | Adam Shillingsburg      | 2017-12-30        | 2017-12-02     | 28            | 9                  | 3255.31          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| AH-10075     | Adam Hart               | 2017-12-30        | 2017-11-26     | 34            | 10                 | 3250.34          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| EB-13750     | Edward Becker           | 2017-12-30        | 2017-11-25     | 35            | 10                 | 3236.31          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| CK-12205     | Chloris Kastensmidt     | 2017-12-30        | 2017-11-21     | 39            | 13                 | 3154.86          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| KB-16240     | Karen Bern              | 2017-12-30        | 2017-12-26     | 4             | 7                  | 3152.62          | 5        | 4        | 4        | 544         | 13                | ALTO VALOR                  |
-| PG-18820     | Patrick Gardner         | 2017-12-30        | 2017-11-24     | 36            | 13                 | 3086.91          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| TB-21625     | Trudy Brown             | 2017-12-30        | 2017-11-30     | 30            | 9                  | 2797.67          | 4        | 5        | 4        | 454         | 13                | ALTO VALOR                  |
-| LC-17140     | Logan Currie            | 2017-12-30        | 2017-12-17     | 13            | 9                  | 2633.58          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| RA-19285     | Ralph Arnett            | 2017-12-30        | 2017-12-25     | 5             | 9                  | 2617.91          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| KN-16390     | Katherine Nockton       | 2017-12-30        | 2017-12-11     | 19            | 9                  | 2617.27          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| FM-14215     | Filia McAdams           | 2017-12-30        | 2017-12-23     | 7             | 10                 | 2456.64          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| BP-11095     | Bart Pistole            | 2017-12-30        | 2017-12-13     | 17            | 12                 | 2442.04          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| CV-12805     | Cynthia Voltz           | 2017-12-30        | 2017-12-25     | 5             | 9                  | 2370.31          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| DB-13210     | Dean Braden             | 2017-12-30        | 2017-12-21     | 9             | 10                 | 2332.58          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| LH-16900     | Lena Hernandez          | 2017-12-30        | 2017-12-09     | 21            | 9                  | 2295.33          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| SH-20395     | Shahid Hopkins          | 2017-12-30        | 2017-12-07     | 23            | 10                 | 2180.72          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| NB-18655     | Nona Balk               | 2017-12-30        | 2017-12-11     | 19            | 9                  | 1972.60          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| JB-15400     | Jennifer Braxton        | 2017-12-30        | 2017-12-23     | 7             | 10                 | 1791.61          | 5        | 5        | 3        | 553         | 13                | RECURRENTE                  |
-| HL-15040     | Hunter Lopez            | 2017-12-30        | 2017-11-17     | 43            | 6                  | 12873.30         | 4        | 3        | 5        | 435         | 12                | CLIENTE EN DESARROLLO       |
-| TS-21370     | Todd Sumrall            | 2017-12-30        | 2017-11-24     | 36            | 6                  | 11891.75         | 4        | 3        | 5        | 435         | 12                | CLIENTE EN DESARROLLO       |
-| KF-16285     | Karen Ferguson          | 2017-12-30        | 2017-09-24     | 97            | 7                  | 10604.27         | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| EH-13765     | Edward Hooks            | 2017-12-30        | 2017-08-17     | 135           | 12                 | 10310.88         | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| LA-16780     | Laura Armstrong         | 2017-12-30        | 2017-07-29     | 154           | 11                 | 8673.22          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| NF-18385     | Natalie Fritzler        | 2017-12-30        | 2017-10-12     | 79            | 7                  | 8322.83          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| KD-16495     | Keith Dawkins           | 2017-12-30        | 2017-09-09     | 112           | 12                 | 8181.26          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| JH-15985     | Joseph Holt             | 2017-12-30        | 2017-12-01     | 29            | 6                  | 7955.00          | 4        | 3        | 5        | 435         | 12                | CLIENTE EN DESARROLLO       |
-| AB-10060     | Adam Bellavance         | 2017-12-30        | 2017-11-06     | 54            | 8                  | 7755.62          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| JW-15220     | Jane Waco               | 2017-12-30        | 2017-11-18     | 42            | 6                  | 7721.71          | 4        | 3        | 5        | 435         | 12                | CLIENTE EN DESARROLLO       |
-| GK-14620     | Grace Kelly             | 2017-12-30        | 2017-09-09     | 112           | 9                  | 6497.27          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| JA-15970     | Joseph Airdo            | 2017-12-30        | 2017-09-29     | 92            | 8                  | 6491.03          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| CM-12655     | Corinna Mitchell        | 2017-12-30        | 2017-12-03     | 27            | 6                  | 6339.56          | 4        | 3        | 5        | 435         | 12                | CLIENTE EN DESARROLLO       |
-| SD-20485     | Shirley Daniels         | 2017-12-30        | 2017-06-13     | 200           | 9                  | 6121.11          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| RM-19675     | Robert Marley           | 2017-12-30        | 2017-12-24     | 6             | 5                  | 5979.10          | 5        | 2        | 5        | 525         | 12                | RECIENTE - BAJA FRECUENCIA  |
-| KM-16375     | Katherine Murray        | 2017-12-30        | 2017-11-04     | 56            | 8                  | 5620.19          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| CP-12085     | Cathy Prescott          | 2017-12-30        | 2017-10-09     | 82            | 8                  | 5402.25          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| TW-21025     | Tamara Willingham       | 2017-12-30        | 2017-10-27     | 64            | 7                  | 5278.83          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| SC-20725     | Steven Cartwright       | 2017-12-30        | 2017-06-26     | 187           | 11                 | 5226.21          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| PO-19180     | Philisse Overcash       | 2017-12-30        | 2017-07-23     | 160           | 9                  | 4893.04          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| JK-15640     | Jim Kriz                | 2017-12-30        | 2017-07-03     | 180           | 9                  | 4760.43          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| TB-21520     | Tracy Blumstein         | 2017-12-30        | 2017-09-14     | 107           | 9                  | 4737.49          | 2        | 5        | 5        | 255         | 12                | EN RIESGO - ANTES VALIOSO   |
-| GB-14575     | Giulietta Baptist       | 2017-12-30        | 2017-12-17     | 13            | 5                  | 4716.29          | 5        | 2        | 5        | 525         | 12                | RECIENTE - BAJA FRECUENCIA  |
-| DB-13270     | Deborah Brumfield       | 2017-12-30        | 2017-11-07     | 53            | 8                  | 4655.90          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| EM-14140     | Eugene Moren            | 2017-12-30        | 2017-11-12     | 48            | 6                  | 4588.44          | 4        | 3        | 5        | 435         | 12                | CLIENTE EN DESARROLLO       |
-| AR-10825     | Anthony Rawles          | 2017-12-30        | 2017-11-02     | 58            | 8                  | 4523.34          | 3        | 4        | 5        | 345         | 12                | RECURRENTE                  |
-| BD-11500     | Bradley Drucker         | 2017-12-30        | 2017-11-25     | 35            | 6                  | 4411.24          | 4        | 3        | 5        | 435         | 12                | CLIENTE EN DESARROLLO       |
-| SP-20860     | Sung Pak                | 2017-12-30        | 2017-10-12     | 79            | 10                 | 4282.94          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| TC-21295     | Toby Carlisle           | 2017-12-30        | 2017-12-03     | 27            | 8                  | 4266.81          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| RS-19765     | Roland Schwarz          | 2017-12-30        | 2017-11-24     | 36            | 8                  | 4159.77          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| MY-18295     | Muhammed Yedwab         | 2017-12-30        | 2017-10-20     | 71            | 11                 | 4152.70          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| MP-17965     | Michael Paige           | 2017-12-30        | 2017-10-19     | 72            | 9                  | 3983.64          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| SC-20305     | Sean Christensen        | 2017-12-30        | 2017-12-01     | 29            | 7                  | 3979.07          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| SJ-20125     | Sanjit Jacobs           | 2017-12-30        | 2017-09-26     | 95            | 12                 | 3949.66          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| KH-16630     | Ken Heidel              | 2017-12-30        | 2017-11-02     | 58            | 9                  | 3918.97          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| RA-19885     | Ruben Ausman            | 2017-12-30        | 2017-11-17     | 43            | 7                  | 3832.31          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| RO-19780     | Rose O'Brian            | 2017-12-30        | 2017-11-25     | 35            | 7                  | 3815.48          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| MG-17650     | Matthew Grinstein       | 2017-12-30        | 2017-12-01     | 29            | 7                  | 3785.28          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| SF-20200     | Sarah Foster            | 2017-12-30        | 2017-11-01     | 59            | 9                  | 3422.79          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| AP-10915     | Arthur Prichep          | 2017-12-30        | 2017-09-23     | 98            | 10                 | 3323.56          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| KH-16330     | Katharine Harms         | 2017-12-30        | 2017-11-20     | 40            | 8                  | 3312.86          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| RW-19630     | Rob Williams            | 2017-12-30        | 2017-10-02     | 89            | 9                  | 3279.75          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| JO-15145     | Jack O'Briant           | 2017-12-30        | 2017-11-03     | 57            | 9                  | 3254.95          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| AS-10285     | Alejandro Savely        | 2017-12-30        | 2017-12-11     | 19            | 6                  | 3214.24          | 5        | 3        | 4        | 534         | 12                | CLIENTE EN DESARROLLO       |
-| BT-11680     | Brian Thompson          | 2017-12-30        | 2017-12-10     | 20            | 7                  | 3196.75          | 5        | 3        | 4        | 534         | 12                | CLIENTE EN DESARROLLO       |
-| KH-16360     | Katherine Hughes        | 2017-12-30        | 2017-12-29     | 1             | 6                  | 3100.61          | 5        | 3        | 4        | 534         | 12                | CLIENTE EN DESARROLLO       |
-| GM-14455     | Gary Mitchum            | 2017-12-30        | 2017-12-14     | 16            | 6                  | 3078.62          | 5        | 3        | 4        | 534         | 12                | CLIENTE EN DESARROLLO       |
-| LT-17110     | Liz Thompson            | 2017-12-30        | 2017-11-26     | 34            | 8                  | 2936.25          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| JM-16195     | Justin MacKendrick      | 2017-12-30        | 2017-11-03     | 57            | 10                 | 2833.93          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| GH-14410     | Gary Hansen             | 2017-12-30        | 2017-10-16     | 75            | 9                  | 2819.47          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| BG-11035     | Barry Gonzalez          | 2017-12-30        | 2017-12-02     | 28            | 8                  | 2798.95          | 4        | 4        | 4        | 444         | 12                | ALTO VALOR                  |
-| EB-13870     | Emily Burns             | 2017-12-30        | 2017-09-21     | 100           | 10                 | 2767.22          | 3        | 5        | 4        | 354         | 12                | RECURRENTE                  |
-| CS-12250     | Chris Selesnick         | 2017-12-30        | 2017-12-04     | 26            | 12                 | 2754.22          | 4        | 5        | 3        | 453         | 12                | RECURRENTE                  |
-| FO-14305     | Frank Olsen             | 2017-12-30        | 2017-11-22     | 38            | 10                 | 2678.44          | 4        | 5        | 3        | 453         | 12                | RECURRENTE                  |
-| RB-19435     | Richard Bierner         | 2017-12-30        | 2017-12-11     | 19            | 8                  | 2663.09          | 5        | 4        | 3        | 543         | 12                | RECURRENTE                  |
-| SU-20665     | Stephanie Ulpright      | 2017-12-30        | 2017-12-10     | 20            | 7                  | 2595.36          | 5        | 4        | 3        | 543         | 12                | RECURRENTE                  |
-| HA-14920     | Helen Andreada          | 2017-12-30        | 2017-12-10     | 20            | 8                  | 2584.16          | 5        | 4        | 3        | 543         | 12                | RECURRENTE                  |
-| PO-18865     | Patrick O'Donnell       | 2017-12-30        | 2017-12-30     | 0             | 7                  | 2493.21          | 5        | 4        | 3        | 543         | 12                | RECURRENTE                  |
-| XP-21865     | Xylona Preis            | 2017-12-30        | 2017-11-17     | 43            | 11                 | 2374.66          | 4        | 5        | 3        | 453         | 12                | RECURRENTE                  |
-| CK-12595     | Clytie Kelty            | 2017-12-30        | 2017-11-17     | 43            | 11                 | 2372.75          | 4        | 5        | 3        | 453         | 12                | RECURRENTE                  |
-| GG-14650     | Greg Guthrie            | 2017-12-30        | 2017-11-17     | 43            | 9                  | 2224.00          | 4        | 5        | 3        | 453         | 12                | RECURRENTE                  |
-| MC-18100     | Mick Crebagga           | 2017-12-30        | 2017-11-19     | 41            | 10                 | 2218.98          | 4        | 5        | 3        | 453         | 12                | RECURRENTE                  |
-| DP-13105     | Dave Poirier            | 2017-12-30        | 2017-12-24     | 6             | 8                  | 2215.00          | 5        | 4        | 3        | 543         | 12                | RECURRENTE                  |
-| DB-12910     | Daniel Byrd             | 2017-12-30        | 2017-12-09     | 21            | 8                  | 2171.60          | 5        | 4        | 3        | 543         | 12                | RECURRENTE                  |
-| SV-20935     | Susan Vittorini         | 2017-12-30        | 2017-12-28     | 2             | 8                  | 1903.49          | 5        | 4        | 3        | 543         | 12                | RECURRENTE                  |
-| RD-19720     | Roger Demir             | 2017-12-30        | 2017-12-09     | 21            | 10                 | 1419.74          | 5        | 5        | 2        | 552         | 12                | RECURRENTE                  |
-| GA-14725     | Guy Armstrong           | 2017-12-30        | 2017-12-25     | 5             | 11                 | 1398.38          | 5        | 5        | 2        | 552         | 12                | RECURRENTE                  |
-| RB-19360     | Raymond Buch            | 2017-12-30        | 2017-09-25     | 96            | 6                  | 15117.34         | 3        | 3        | 5        | 335         | 11                | CLIENTE EN DESARROLLO       |
-| SC-20095     | Sanjit Chand            | 2017-12-30        | 2017-01-15     | 349           | 9                  | 14142.33         | 1        | 5        | 5        | 155         | 11                | EN RIESGO - ANTES VALIOSO   |
-| CC-12370     | Christopher Conant      | 2017-12-30        | 2017-11-17     | 43            | 5                  | 12129.07         | 4        | 2        | 5        | 425         | 11                | RECIENTE - BAJA FRECUENCIA  |
-| CJ-12010     | Caroline Jumper         | 2017-12-30        | 2017-06-24     | 189           | 8                  | 11164.97         | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| CL-12565     | Clay Ludtke             | 2017-12-30        | 2017-03-21     | 284           | 12                 | 10880.55         | 1        | 5        | 5        | 155         | 11                | EN RIESGO - ANTES VALIOSO   |
-| HW-14935     | Helen Wasserman         | 2017-12-30        | 2017-09-04     | 117           | 8                  | 9300.25          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| TB-21400     | Tom Boeckenhauer        | 2017-12-30        | 2017-06-11     | 202           | 7                  | 9133.99          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| NP-18700     | Nora Preis              | 2017-12-30        | 2017-08-14     | 138           | 7                  | 7903.18          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| AH-10690     | Anna H?berlin           | 2017-12-30        | 2016-11-15     | 410           | 12                 | 7888.29          | 1        | 5        | 5        | 155         | 11                | EN RIESGO - ANTES VALIOSO   |
-| JM-15865     | John Murray             | 2017-12-30        | 2017-09-12     | 109           | 7                  | 7625.08          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| JD-15895     | Jonathan Doherty        | 2017-12-30        | 2016-12-01     | 394           | 11                 | 7610.86          | 1        | 5        | 5        | 155         | 11                | EN RIESGO - ANTES VALIOSO   |
-| MS-17365     | Maribeth Schnelling     | 2017-12-30        | 2017-04-01     | 273           | 10                 | 7443.69          | 1        | 5        | 5        | 155         | 11                | EN RIESGO - ANTES VALIOSO   |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| RW-19540     | Rick Wilson             | 2017-12-30        | 2017-09-01     | 120           | 7                  | 7397.40          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| NW-18400     | Natalie Webber          | 2017-12-30        | 2017-07-11     | 172           | 7                  | 7234.01          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| NM-18445     | Nathan Mautz            | 2017-12-30        | 2017-07-23     | 160           | 7                  | 6459.34          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| DM-13015     | Darrin Martin           | 2017-12-30        | 2017-11-03     | 57            | 7                  | 6345.10          | 3        | 3        | 5        | 335         | 11                | CLIENTE EN DESARROLLO       |
-| RL-19615     | Rob Lucas               | 2017-12-30        | 2017-08-31     | 121           | 8                  | 6234.91          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| CP-12340     | Christine Phan          | 2017-12-30        | 2017-07-23     | 160           | 8                  | 5888.28          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| CS-12505     | Cindy Stewart           | 2017-12-30        | 2017-11-02     | 58            | 6                  | 5690.06          | 3        | 3        | 5        | 335         | 11                | CLIENTE EN DESARROLLO       |
-| AM-10705     | Anne McFarland          | 2017-12-30        | 2017-07-21     | 162           | 8                  | 5664.02          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| DP-13390     | Dennis Pardue           | 2017-12-30        | 2017-01-06     | 358           | 9                  | 5480.72          | 1        | 5        | 5        | 155         | 11                | EN RIESGO - ANTES VALIOSO   |
-| TS-21205     | Thomas Seio             | 2017-12-30        | 2017-06-15     | 198           | 7                  | 5371.09          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| HR-14830     | Harold Ryan             | 2017-12-30        | 2017-07-24     | 159           | 7                  | 5248.79          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| AA-10645     | Anna Andreadi           | 2017-12-30        | 2017-11-05     | 55            | 6                  | 5086.94          | 3        | 3        | 5        | 335         | 11                | CLIENTE EN DESARROLLO       |
-| IL-15100     | Ivan Liston             | 2017-12-30        | 2017-08-10     | 142           | 7                  | 5040.74          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| LB-16795     | Laurel Beltran          | 2017-12-30        | 2017-07-31     | 152           | 8                  | 4985.68          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| HK-14890     | Heather Kirkland        | 2017-12-30        | 2017-08-01     | 151           | 8                  | 4877.78          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| AJ-10780     | Anthony Jacobs          | 2017-12-30        | 2017-10-16     | 75            | 7                  | 4867.34          | 3        | 3        | 5        | 335         | 11                | CLIENTE EN DESARROLLO       |
-| BW-11110     | Bart Watters            | 2017-12-30        | 2017-08-31     | 121           | 8                  | 4750.36          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| SR-20740     | Steven Roelle           | 2017-12-30        | 2017-06-17     | 196           | 8                  | 4345.89          | 2        | 4        | 5        | 245         | 11                | EN RIESGO - ANTES VALIOSO   |
-| RD-19480     | Rick Duston             | 2017-12-30        | 2017-10-19     | 72            | 8                  | 4272.93          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| AS-10225     | Alan Schoenberger       | 2017-12-30        | 2017-12-08     | 22            | 5                  | 4260.78          | 5        | 2        | 4        | 524         | 11                | RECIENTE - BAJA FRECUENCIA  |
-| TH-21550     | Tracy Hopkins           | 2017-12-30        | 2017-10-19     | 72            | 7                  | 4234.10          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| JF-15565     | Jill Fjeld              | 2017-12-30        | 2017-11-06     | 54            | 8                  | 4198.33          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| JK-15625     | Jim Karlsson            | 2017-12-30        | 2017-10-30     | 61            | 7                  | 3760.03          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| DL-13495     | Dionis Lloyd            | 2017-12-30        | 2017-10-15     | 76            | 8                  | 3539.32          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| VP-21760     | Victoria Pisteka        | 2017-12-30        | 2017-10-16     | 75            | 7                  | 3360.53          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| DV-13465     | Dianna Vittorini        | 2017-12-30        | 2017-12-01     | 29            | 6                  | 3341.59          | 4        | 3        | 4        | 434         | 11                | CLIENTE EN DESARROLLO       |
-| CT-11995     | Carol Triggs            | 2017-12-30        | 2017-09-25     | 96            | 8                  | 3241.90          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| SR-20425     | Sharelle Roach          | 2017-12-30        | 2017-12-22     | 8             | 5                  | 3233.48          | 5        | 2        | 4        | 524         | 11                | RECIENTE - BAJA FRECUENCIA  |
-| LW-16990     | Lindsay Williams        | 2017-12-30        | 2017-11-27     | 33            | 6                  | 3230.31          | 4        | 3        | 4        | 434         | 11                | CLIENTE EN DESARROLLO       |
-| JL-15505     | Jeremy Lonsdale         | 2017-12-30        | 2017-11-11     | 49            | 6                  | 3173.87          | 4        | 3        | 4        | 434         | 11                | CLIENTE EN DESARROLLO       |
-| JM-15250     | Janet Martin            | 2017-12-30        | 2017-11-23     | 37            | 6                  | 3159.12          | 4        | 3        | 4        | 434         | 11                | CLIENTE EN DESARROLLO       |
-| MS-17770     | Maxwell Schwartz        | 2017-12-30        | 2017-08-31     | 121           | 9                  | 3144.68          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| RD-19900     | Ruben Dartt             | 2017-12-30        | 2017-09-07     | 114           | 9                  | 3133.92          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| TN-21040     | Tanja Norvell           | 2017-12-30        | 2017-10-01     | 90            | 7                  | 3130.22          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| SN-20710     | Steve Nguyen            | 2017-12-30        | 2017-10-12     | 79            | 7                  | 3127.96          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| EH-14125     | Eugene Hildebrand       | 2017-12-30        | 2017-07-31     | 152           | 10                 | 3082.65          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| SL-20155     | Sara Luxemburg          | 2017-12-30        | 2017-10-21     | 70            | 7                  | 3053.01          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| DB-13120     | David Bremer            | 2017-12-30        | 2017-11-12     | 48            | 7                  | 2973.09          | 4        | 3        | 4        | 434         | 11                | CLIENTE EN DESARROLLO       |
-| NS-18640     | Noel Staavos            | 2017-12-30        | 2017-07-09     | 174           | 13                 | 2964.82          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| BC-11125     | Becky Castell           | 2017-12-30        | 2017-06-11     | 202           | 9                  | 2933.68          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| JK-16120     | Julie Kriz              | 2017-12-30        | 2017-09-04     | 117           | 10                 | 2932.48          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| RD-19585     | Rob Dowd                | 2017-12-30        | 2017-07-03     | 180           | 10                 | 2912.89          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| CY-12745     | Craig Yedwab            | 2017-12-30        | 2017-10-31     | 60            | 8                  | 2900.03          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| MT-17815     | Meg Tillman             | 2017-12-30        | 2017-11-11     | 49            | 6                  | 2890.14          | 4        | 3        | 4        | 434         | 11                | CLIENTE EN DESARROLLO       |
-| BF-11020     | Barry Franz?sisch       | 2017-12-30        | 2017-10-17     | 74            | 8                  | 2888.51          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| AW-10930     | Arthur Wiediger         | 2017-12-30        | 2017-11-14     | 46            | 7                  | 2852.97          | 4        | 3        | 4        | 434         | 11                | CLIENTE EN DESARROLLO       |
-| EA-14035     | Erin Ashbrook           | 2017-12-30        | 2017-07-31     | 152           | 13                 | 2846.71          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| TS-21610     | Troy Staebel            | 2017-12-30        | 2017-11-05     | 55            | 7                  | 2820.42          | 3        | 4        | 4        | 344         | 11                | RECURRENTE                  |
-| JC-15775     | John Castell            | 2017-12-30        | 2017-07-25     | 158           | 9                  | 2772.06          | 2        | 5        | 4        | 254         | 11                | EN RIESGO - ANTES VALIOSO   |
-| ML-17395     | Marina Lichtenstein     | 2017-12-30        | 2017-10-22     | 69            | 9                  | 2722.84          | 3        | 5        | 3        | 353         | 11                | RECURRENTE                  |
-| JK-15370     | Jay Kimmel              | 2017-12-30        | 2017-11-16     | 44            | 8                  | 2709.63          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| CA-12265     | Christina Anderson      | 2017-12-30        | 2017-11-04     | 56            | 9                  | 2648.29          | 3        | 5        | 3        | 353         | 11                | RECURRENTE                  |
-| LC-16870     | Lena Cacioppo           | 2017-12-30        | 2017-12-03     | 27            | 8                  | 2580.70          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| SC-20695     | Steve Chapman           | 2017-12-30        | 2017-10-02     | 89            | 10                 | 2576.41          | 3        | 5        | 3        | 353         | 11                | RECURRENTE                  |
-| BS-11755     | Bruce Stewart           | 2017-12-30        | 2017-12-29     | 1             | 7                  | 2562.38          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| HF-14995     | Herbert Flentye         | 2017-12-30        | 2017-12-09     | 21            | 7                  | 2533.16          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| DJ-13510     | Don Jones               | 2017-12-30        | 2017-11-12     | 48            | 8                  | 2501.69          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| NZ-18565     | Nick Zandusky           | 2017-12-30        | 2017-10-06     | 85            | 9                  | 2488.31          | 3        | 5        | 3        | 353         | 11                | RECURRENTE                  |
-| BP-11290     | Beth Paige              | 2017-12-30        | 2017-12-18     | 12            | 7                  | 2475.16          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| JF-15415     | Jennifer Ferguson       | 2017-12-30        | 2017-12-28     | 2             | 6                  | 2371.45          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| MK-17905     | Michael Kennedy         | 2017-12-30        | 2017-12-02     | 28            | 8                  | 2302.37          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| KM-16225     | Kalyca Meade            | 2017-12-30        | 2017-12-16     | 14            | 6                  | 2260.96          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| MY-17380     | Maribeth Yedwab         | 2017-12-30        | 2017-12-01     | 29            | 7                  | 2254.29          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| TS-21505     | Tony Sayre              | 2017-12-30        | 2017-12-19     | 11            | 6                  | 2243.27          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| JG-15310     | Jason Gross             | 2017-12-30        | 2017-12-28     | 2             | 6                  | 2240.58          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| RP-19855     | Roy Phan                | 2017-12-30        | 2017-12-02     | 28            | 8                  | 2170.72          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| ML-17755     | Max Ludwig              | 2017-12-30        | 2017-12-01     | 29            | 7                  | 2071.91          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| HP-14815     | Harold Pawlan           | 2017-12-30        | 2017-11-30     | 30            | 7                  | 1990.31          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| PG-18895     | Paul Gonzalez           | 2017-12-30        | 2017-11-03     | 57            | 9                  | 1987.16          | 3        | 5        | 3        | 353         | 11                | RECURRENTE                  |
-| CB-12415     | Christy Brittain        | 2017-12-30        | 2017-12-04     | 26            | 8                  | 1949.20          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| ME-17725     | Max Engle               | 2017-12-30        | 2017-12-02     | 28            | 8                  | 1908.45          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| SC-20440     | Shaun Chance            | 2017-12-30        | 2017-11-24     | 36            | 7                  | 1875.00          | 4        | 4        | 3        | 443         | 11                | RECURRENTE                  |
-| AH-10030     | Aaron Hawkins           | 2017-12-30        | 2017-12-18     | 12            | 7                  | 1744.70          | 5        | 3        | 3        | 533         | 11                | CLIENTE EN DESARROLLO       |
-| MV-18190     | Mike Vittorini          | 2017-12-30        | 2017-12-11     | 19            | 7                  | 1734.57          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| KE-16420     | Katrina Edelman         | 2017-12-30        | 2017-12-04     | 26            | 8                  | 1686.73          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| CC-12475     | Cindy Chapman           | 2017-12-30        | 2017-11-21     | 39            | 9                  | 1659.44          | 4        | 5        | 2        | 452         | 11                | RECURRENTE                  |
-| MV-17485     | Mark Van Huff           | 2017-12-30        | 2017-12-03     | 27            | 9                  | 1560.05          | 4        | 5        | 2        | 452         | 11                | RECURRENTE                  |
-| MB-17305     | Maria Bertelson         | 2017-12-30        | 2017-11-12     | 48            | 10                 | 1548.70          | 4        | 5        | 2        | 452         | 11                | RECURRENTE                  |
-| DL-13315     | Delfina Latchford       | 2017-12-30        | 2017-12-08     | 22            | 8                  | 1458.26          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| TD-20995     | Tamara Dahlen           | 2017-12-30        | 2017-11-23     | 37            | 9                  | 1434.55          | 4        | 5        | 2        | 452         | 11                | RECURRENTE                  |
-| SS-20140     | Saphhira Shifley        | 2017-12-30        | 2017-12-15     | 15            | 8                  | 1324.03          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| JW-15955     | Joni Wasserman          | 2017-12-30        | 2017-12-25     | 5             | 7                  | 1244.09          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| RD-19810     | Ross DeVincentis        | 2017-12-30        | 2017-12-16     | 14            | 8                  | 1137.62          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| AB-10165     | Alan Barnes             | 2017-12-30        | 2017-12-05     | 25            | 8                  | 1113.84          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| AA-10375     | Allen Armold            | 2017-12-30        | 2017-12-11     | 19            | 9                  | 1056.39          | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| KB-16600     | Ken Brennan             | 2017-12-30        | 2017-12-29     | 1             | 7                  | 983.92           | 5        | 4        | 2        | 542         | 11                | RECURRENTE                  |
-| SM-20320     | Sean Miller             | 2017-12-30        | 2017-10-12     | 79            | 5                  | 25043.05         | 3        | 2        | 5        | 325         | 10                | CLIENTE EN DESARROLLO       |
-| TA-21385     | Tom Ashbrook            | 2017-12-30        | 2017-10-22     | 69            | 4                  | 14595.62         | 3        | 2        | 5        | 325         | 10                | CLIENTE EN DESARROLLO       |
-| CM-12385     | Christopher Martinez    | 2017-12-30        | 2017-11-23     | 37            | 4                  | 8954.02          | 4        | 1        | 5        | 415         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| PS-19045     | Penelope Sewall         | 2017-12-30        | 2017-05-08     | 236           | 7                  | 6843.63          | 1        | 4        | 5        | 145         | 10                | EN RIESGO - ANTES VALIOSO   |
-| SB-20185     | Sarah Brown             | 2017-12-30        | 2017-06-25     | 188           | 6                  | 6411.00          | 2        | 3        | 5        | 235         | 10                | EN RIESGO - ANTES VALIOSO   |
-| TP-21415     | Tom Prescott            | 2017-12-30        | 2017-09-17     | 104           | 5                  | 5329.00          | 2        | 3        | 5        | 235         | 10                | EN RIESGO - ANTES VALIOSO   |
-| MW-18235     | Mitch Willingham        | 2017-12-30        | 2017-11-16     | 44            | 2                  | 5253.88          | 4        | 1        | 5        | 415         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| IM-15070     | Irene Maddox            | 2017-12-30        | 2016-12-05     | 390           | 7                  | 4930.47          | 1        | 4        | 5        | 145         | 10                | EN RIESGO - ANTES VALIOSO   |
-| AJ-10795     | Anthony Johnson         | 2017-12-30        | 2017-07-17     | 166           | 7                  | 4501.39          | 2        | 3        | 5        | 235         | 10                | EN RIESGO - ANTES VALIOSO   |
-| JK-15205     | Jamie Kunitz            | 2017-12-30        | 2017-10-30     | 61            | 5                  | 4427.14          | 3        | 2        | 5        | 325         | 10                | CLIENTE EN DESARROLLO       |
-| KW-16435     | Katrina Willman         | 2017-12-30        | 2017-09-25     | 96            | 5                  | 4416.52          | 3        | 2        | 5        | 325         | 10                | CLIENTE EN DESARROLLO       |
-| EB-13840     | Ellis Ballard           | 2017-12-30        | 2017-10-01     | 90            | 5                  | 4358.13          | 3        | 2        | 5        | 325         | 10                | CLIENTE EN DESARROLLO       |
-| DK-12895     | Dana Kaydos             | 2017-12-30        | 2017-11-15     | 45            | 5                  | 4282.18          | 4        | 2        | 4        | 424         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| CB-12535     | Claudia Bergmann        | 2017-12-30        | 2017-06-16     | 197           | 8                  | 4246.46          | 2        | 4        | 4        | 244         | 10                | EN RIESGO - ANTES VALIOSO   |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| PM-19135     | Peter McVee             | 2017-12-30        | 2017-11-09     | 51            | 4                  | 4115.66          | 4        | 2        | 4        | 424         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| SV-20785     | Stewart Visinsky        | 2017-12-30        | 2017-02-13     | 320           | 9                  | 4105.31          | 1        | 5        | 4        | 154         | 10                | EN RIESGO - ANTES VALIOSO   |
-| SP-20920     | Susan Pistek            | 2017-12-30        | 2017-10-21     | 70            | 6                  | 3990.69          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| GA-14515     | George Ashbrook         | 2017-12-30        | 2017-08-03     | 149           | 8                  | 3919.78          | 2        | 4        | 4        | 244         | 10                | EN RIESGO - ANTES VALIOSO   |
-| BS-11380     | Bill Stewart            | 2017-12-30        | 2017-12-02     | 28            | 5                  | 3887.83          | 4        | 2        | 4        | 424         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| CA-11965     | Carol Adams             | 2017-12-30        | 2017-09-25     | 96            | 6                  | 3789.72          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| MD-17350     | Maribeth Dona           | 2017-12-30        | 2017-09-04     | 117           | 7                  | 3766.38          | 2        | 4        | 4        | 244         | 10                | EN RIESGO - ANTES VALIOSO   |
-| SC-20260     | Scott Cohen             | 2017-12-30        | 2017-06-26     | 187           | 8                  | 3729.79          | 2        | 4        | 4        | 244         | 10                | EN RIESGO - ANTES VALIOSO   |
-| RH-19495     | Rick Hansen             | 2017-12-30        | 2017-11-28     | 32            | 5                  | 3621.38          | 4        | 2        | 4        | 424         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| GM-14440     | Gary McGarr             | 2017-12-30        | 2017-10-08     | 83            | 7                  | 3582.82          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| ES-14020     | Erica Smith             | 2017-12-30        | 2017-11-20     | 40            | 5                  | 3510.46          | 4        | 2        | 4        | 424         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| AG-10675     | Anna Gayman             | 2017-12-30        | 2017-09-24     | 97            | 7                  | 3489.04          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| ED-13885     | Emily Ducich            | 2017-12-30        | 2017-08-17     | 135           | 8                  | 3484.92          | 2        | 4        | 4        | 244         | 10                | EN RIESGO - ANTES VALIOSO   |
-| FC-14245     | Frank Carlisle          | 2017-12-30        | 2017-10-21     | 70            | 7                  | 3418.74          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| SG-20080     | Sandra Glassco          | 2017-12-30        | 2017-12-22     | 8             | 3                  | 3406.58          | 5        | 1        | 4        | 514         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| DJ-13630     | Doug Jacobs             | 2017-12-30        | 2017-12-18     | 12            | 3                  | 3356.40          | 5        | 1        | 4        | 514         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| BD-11605     | Brian Dahlen            | 2017-12-30        | 2017-09-24     | 97            | 7                  | 3288.47          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| DL-12925     | Daniel Lacy             | 2017-12-30        | 2017-11-03     | 57            | 6                  | 3272.20          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| DG-13300     | Deirdre Greer           | 2017-12-30        | 2017-11-28     | 32            | 5                  | 3195.82          | 4        | 2        | 4        | 424         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| AS-10045     | Aaron Smayling          | 2017-12-30        | 2017-10-03     | 88            | 7                  | 3050.69          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| MH-18025     | Michelle Huthwaite      | 2017-12-30        | 2017-11-11     | 49            | 5                  | 2984.95          | 4        | 2        | 4        | 424         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| FA-14230     | Frank Atkinson          | 2017-12-30        | 2017-09-24     | 97            | 7                  | 2984.05          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| TM-21010     | Tamara Manning          | 2017-12-30        | 2017-09-18     | 103           | 8                  | 2955.23          | 2        | 4        | 4        | 244         | 10                | EN RIESGO - ANTES VALIOSO   |
-| SW-20455     | Shaun Weien             | 2017-12-30        | 2017-07-21     | 162           | 7                  | 2921.54          | 2        | 4        | 4        | 244         | 10                | EN RIESGO - ANTES VALIOSO   |
-| ML-17410     | Maris LaWare            | 2017-12-30        | 2017-11-06     | 54            | 6                  | 2921.50          | 3        | 3        | 4        | 334         | 10                | CLIENTE EN DESARROLLO       |
-| MM-18055     | Michelle Moray          | 2017-12-30        | 2017-10-30     | 61            | 8                  | 2749.88          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| MC-17275     | Marc Crier              | 2017-12-30        | 2017-10-15     | 76            | 8                  | 2725.98          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| DK-13090     | Dave Kipp               | 2017-12-30        | 2017-11-18     | 42            | 7                  | 2650.56          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| SO-20335     | Sean O'Donnell          | 2017-12-30        | 2017-12-01     | 29            | 6                  | 2602.58          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| NS-18505     | Neola Schneider         | 2017-12-30        | 2017-12-24     | 6             | 4                  | 2575.86          | 5        | 2        | 3        | 523         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| CC-12610     | Corey Catlett           | 2017-12-30        | 2017-11-26     | 34            | 7                  | 2540.63          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| AC-10615     | Ann Chong               | 2017-12-30        | 2017-12-24     | 6             | 5                  | 2537.69          | 5        | 2        | 3        | 523         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| CM-12160     | Charles McCrossin       | 2017-12-30        | 2017-12-04     | 26            | 6                  | 2533.31          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| FM-14380     | Fred McMath             | 2017-12-30        | 2017-08-07     | 145           | 9                  | 2523.27          | 2        | 5        | 3        | 253         | 10                | EN RIESGO - ANTES VALIOSO   |
-| JB-16045     | Julia Barnett           | 2017-12-30        | 2017-12-23     | 7             | 5                  | 2518.12          | 5        | 2        | 3        | 523         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| JS-16030     | Joy Smith               | 2017-12-30        | 2017-12-02     | 28            | 6                  | 2516.49          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| MN-17935     | Michael Nguyen          | 2017-12-30        | 2017-11-26     | 34            | 6                  | 2477.95          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| MH-17455     | Mark Hamilton           | 2017-12-30        | 2017-10-06     | 85            | 8                  | 2456.18          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| BS-11590     | Brendan Sweed           | 2017-12-30        | 2017-11-25     | 35            | 6                  | 2454.93          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| VM-21685     | Valerie Mitchum         | 2017-12-30        | 2017-11-06     | 54            | 7                  | 2454.87          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| MC-17590     | Matt Collister          | 2017-12-30        | 2017-11-09     | 51            | 6                  | 2426.07          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| AG-10495     | Andrew Gjertsen         | 2017-12-30        | 2017-10-13     | 78            | 8                  | 2356.86          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| RF-19735     | Roland Fjeld            | 2017-12-30        | 2017-10-02     | 89            | 7                  | 2341.30          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| EM-13825     | Elizabeth Moffitt       | 2017-12-30        | 2017-11-05     | 55            | 8                  | 2339.60          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| KN-16705     | Kristina Nunn           | 2017-12-30        | 2017-09-23     | 98            | 8                  | 2280.58          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| JF-15190     | Jamie Frazer            | 2017-12-30        | 2017-10-26     | 65            | 7                  | 2279.59          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| CC-12670     | Craig Carreira          | 2017-12-30        | 2017-12-01     | 29            | 7                  | 2269.70          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| NC-18415     | Nathan Cano             | 2017-12-30        | 2017-11-19     | 41            | 6                  | 2218.99          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| MH-17785     | Maya Herman             | 2017-12-30        | 2017-09-23     | 98            | 7                  | 2203.78          | 3        | 4        | 3        | 343         | 10                | RECURRENTE                  |
-| GW-14605     | Giulietta Weimer        | 2017-12-30        | 2017-12-02     | 28            | 7                  | 2189.02          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| AF-10870     | Art Ferguson            | 2017-12-30        | 2017-11-19     | 41            | 7                  | 2052.91          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| DB-13615     | Doug Bickford           | 2017-12-30        | 2017-11-27     | 33            | 7                  | 1989.05          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| SW-20275     | Scott Williamson        | 2017-12-30        | 2017-11-30     | 30            | 6                  | 1966.65          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| KD-16345     | Katherine Ducich        | 2017-12-30        | 2017-11-19     | 41            | 6                  | 1888.96          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| BG-11695     | Brooke Gillingham       | 2017-12-30        | 2017-11-24     | 36            | 6                  | 1874.17          | 4        | 3        | 3        | 433         | 10                | CLIENTE EN DESARROLLO       |
-| PC-18745     | Pamela Coakley          | 2017-12-30        | 2017-12-28     | 2             | 4                  | 1832.06          | 5        | 2        | 3        | 523         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| EG-13900     | Emily Grady             | 2017-12-30        | 2017-12-08     | 22            | 5                  | 1832.02          | 5        | 2        | 3        | 523         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| MF-18250     | Monica Federle          | 2017-12-30        | 2017-12-23     | 7             | 5                  | 1758.30          | 5        | 2        | 3        | 523         | 10                | RECIENTE - BAJA FRECUENCIA  |
-| JP-16135     | Julie Prescott          | 2017-12-30        | 2017-09-19     | 102           | 9                  | 1707.71          | 3        | 5        | 2        | 352         | 10                | RECURRENTE                  |
-| JP-15460     | Jennifer Patt           | 2017-12-30        | 2017-11-23     | 37            | 7                  | 1669.14          | 4        | 4        | 2        | 442         | 10                | RECURRENTE                  |
-| AP-10720     | Anne Pryor              | 2017-12-30        | 2017-11-19     | 41            | 8                  | 1638.55          | 4        | 4        | 2        | 442         | 10                | RECURRENTE                  |
-| CK-12760     | Cyma Kinney             | 2017-12-30        | 2017-10-09     | 82            | 9                  | 1582.11          | 3        | 5        | 2        | 352         | 10                | RECURRENTE                  |
-| GB-14530     | George Bell             | 2017-12-30        | 2017-10-29     | 62            | 11                 | 1568.44          | 3        | 5        | 2        | 352         | 10                | RECURRENTE                  |
-| KA-16525     | Kelly Andreada          | 2017-12-30        | 2017-11-24     | 36            | 7                  | 1519.51          | 4        | 4        | 2        | 442         | 10                | RECURRENTE                  |
-| CM-12190     | Charlotte Melton        | 2017-12-30        | 2017-12-22     | 8             | 6                  | 1475.14          | 5        | 3        | 2        | 532         | 10                | CLIENTE EN DESARROLLO       |
-| LE-16810     | Laurel Elliston         | 2017-12-30        | 2017-12-09     | 21            | 6                  | 1469.45          | 5        | 3        | 2        | 532         | 10                | CLIENTE EN DESARROLLO       |
-| PN-18775     | Parhena Norris          | 2017-12-30        | 2017-11-30     | 30            | 8                  | 1467.15          | 4        | 4        | 2        | 442         | 10                | RECURRENTE                  |
-| MB-18085     | Mick Brown              | 2017-12-30        | 2017-11-16     | 44            | 7                  | 1428.23          | 4        | 4        | 2        | 442         | 10                | RECURRENTE                  |
-| MC-17575     | Matt Collins            | 2017-12-30        | 2017-12-03     | 27            | 8                  | 1303.89          | 4        | 4        | 2        | 442         | 10                | RECURRENTE                  |
-| PJ-18835     | Patrick Jones           | 2017-12-30        | 2017-11-21     | 39            | 8                  | 1220.09          | 4        | 4        | 2        | 442         | 10                | RECURRENTE                  |
-| EH-14005     | Erica Hernandez         | 2017-12-30        | 2017-12-28     | 2             | 7                  | 1219.53          | 5        | 3        | 2        | 532         | 10                | CLIENTE EN DESARROLLO       |
-| JL-15130     | Jack Lebron             | 2017-12-30        | 2017-12-22     | 8             | 6                  | 1214.96          | 5        | 3        | 2        | 532         | 10                | CLIENTE EN DESARROLLO       |
-| AT-10435     | Alyssa Tate             | 2017-12-30        | 2017-12-09     | 21            | 6                  | 1171.81          | 5        | 3        | 2        | 532         | 10                | CLIENTE EN DESARROLLO       |
-| DB-13660     | Duane Benoit            | 2017-12-30        | 2017-12-18     | 12            | 7                  | 1155.20          | 5        | 3        | 2        | 532         | 10                | CLIENTE EN DESARROLLO       |
-| CW-11905     | Carl Weiss              | 2017-12-30        | 2017-12-08     | 22            | 6                  | 1136.59          | 5        | 3        | 2        | 532         | 10                | CLIENTE EN DESARROLLO       |
-| RF-19840     | Roy Franz?sisch         | 2017-12-30        | 2017-12-24     | 6             | 8                  | 945.22           | 5        | 4        | 1        | 541         | 10                | RECURRENTE                  |
-| TC-21535     | Tracy Collins           | 2017-12-30        | 2017-12-26     | 4             | 7                  | 742.56           | 5        | 4        | 1        | 541         | 10                | RECURRENTE                  |
-| GT-14635     | Grant Thornton          | 2017-12-30        | 2017-11-04     | 56            | 3                  | 9351.21          | 3        | 1        | 5        | 315         | 9                 | CLIENTE EN DESARROLLO       |
-| RH-19510     | Rick Huthwaite          | 2017-12-30        | 2016-09-19     | 467           | 6                  | 6979.18          | 1        | 3        | 5        | 135         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| VD-21670     | Valerie Dominguez       | 2017-12-30        | 2016-05-28     | 581           | 6                  | 6442.25          | 1        | 3        | 5        | 135         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| AA-10315     | Alex Avila              | 2017-12-30        | 2017-06-29     | 184           | 5                  | 5563.56          | 2        | 2        | 5        | 225         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| DW-13480     | Dianna Wilson           | 2017-12-30        | 2017-05-27     | 217           | 5                  | 5271.63          | 2        | 2        | 5        | 225         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| DH-13075     | Dave Hallsten           | 2017-12-30        | 2017-03-28     | 277           | 6                  | 4932.87          | 1        | 3        | 5        | 135         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| SC-20230     | Scot Coram              | 2017-12-30        | 2017-08-03     | 149           | 4                  | 4371.96          | 2        | 2        | 5        | 225         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| GH-14425     | Gary Hwang              | 2017-12-30        | 2017-11-10     | 50            | 4                  | 4172.85          | 4        | 1        | 4        | 414         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| PW-19240     | Pierre Wener            | 2017-12-30        | 2016-09-22     | 464           | 7                  | 3922.42          | 1        | 4        | 4        | 144         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| DB-13555     | Dorothy Badders         | 2017-12-30        | 2017-09-14     | 107           | 7                  | 3908.80          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| NP-18670     | Nora Paige              | 2017-12-30        | 2017-11-02     | 58            | 5                  | 3908.40          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| FC-14335     | Fred Chung              | 2017-12-30        | 2017-06-29     | 184           | 7                  | 3889.37          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| OT-18730     | Olvera Toch             | 2017-12-30        | 2017-10-26     | 65            | 5                  | 3818.62          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| JK-16090     | Juliana Krohn           | 2017-12-30        | 2017-12-02     | 28            | 3                  | 3747.67          | 4        | 1        | 4        | 414         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| TB-21175     | Thomas Boland           | 2017-12-30        | 2017-11-02     | 58            | 4                  | 3589.30          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| RW-19690     | Robert Waldorf          | 2017-12-30        | 2017-10-12     | 79            | 5                  | 3495.65          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| RF-19345     | Randy Ferguson          | 2017-12-30        | 2016-12-05     | 390           | 8                  | 3309.15          | 1        | 4        | 4        | 144         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| RR-19525     | Rick Reed               | 2017-12-30        | 2017-07-13     | 170           | 6                  | 3302.26          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| RS-19420     | Ricardo Sperren         | 2017-12-30        | 2017-10-15     | 76            | 5                  | 3221.29          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| MP-17470     | Mark Packer             | 2017-12-30        | 2016-01-11     | 719           | 7                  | 3206.13          | 1        | 4        | 4        | 144         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| GM-14680     | Greg Matthias           | 2017-12-30        | 2017-07-31     | 152           | 6                  | 3163.63          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| SG-20605     | Speros Goranitis        | 2017-12-30        | 2017-09-13     | 108           | 6                  | 3124.83          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| EB-14110     | Eugene Barchas          | 2017-12-30        | 2017-09-08     | 113           | 6                  | 3071.13          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| MG-18145     | Mike Gockenbach         | 2017-12-30        | 2017-10-07     | 84            | 4                  | 3061.54          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| KT-16465     | Kean Takahito           | 2017-12-30        | 2016-12-04     | 391           | 7                  | 3057.10          | 1        | 4        | 4        | 144         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| SS-20410     | Shahid Shariari         | 2017-12-30        | 2017-09-11     | 110           | 6                  | 3056.81          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| CA-12775     | Cynthia Arntzen         | 2017-12-30        | 2017-09-01     | 120           | 7                  | 3041.57          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| TH-21115     | Thea Hudgings           | 2017-12-30        | 2017-11-02     | 58            | 4                  | 2942.77          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| ND-18460     | Neil Ducich             | 2017-12-30        | 2017-06-30     | 183           | 6                  | 2893.46          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| PV-18985     | Paul Van Hugh           | 2017-12-30        | 2017-10-02     | 89            | 5                  | 2876.05          | 3        | 2        | 4        | 324         | 9                 | CLIENTE EN DESARROLLO       |
-| LS-16945     | Linda Southworth        | 2017-12-30        | 2017-07-05     | 178           | 6                  | 2845.27          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| PF-19165     | Philip Fox              | 2017-12-30        | 2017-06-17     | 196           | 6                  | 2770.00          | 2        | 3        | 4        | 234         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| KB-16585     | Ken Black               | 2017-12-30        | 2017-05-14     | 230           | 12                 | 2744.74          | 1        | 5        | 3        | 153         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| JE-16165     | Justin Ellison          | 2017-12-30        | 2017-12-10     | 20            | 3                  | 2697.25          | 5        | 1        | 3        | 513         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| NH-18610     | Nicole Hansen           | 2017-12-30        | 2017-06-24     | 189           | 7                  | 2673.29          | 2        | 4        | 3        | 243         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| MC-17605     | Matt Connell            | 2017-12-30        | 2017-09-09     | 112           | 8                  | 2258.19          | 2        | 4        | 3        | 243         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| JR-16210     | Justin Ritter           | 2017-12-30        | 2017-11-27     | 33            | 5                  | 2201.69          | 4        | 2        | 3        | 423         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| KN-16450     | Kean Nguyen             | 2017-12-30        | 2017-11-08     | 52            | 5                  | 2171.96          | 4        | 2        | 3        | 423         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| HA-14905     | Helen Abelman           | 2017-12-30        | 2017-10-22     | 69            | 7                  | 2163.30          | 3        | 3        | 3        | 333         | 9                 | CLIENTE EN DESARROLLO       |
-| NM-18520     | Neoma Murray            | 2017-12-30        | 2017-04-30     | 244           | 10                 | 2161.98          | 1        | 5        | 3        | 153         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| CD-11920     | Carlos Daly             | 2017-12-30        | 2017-11-20     | 40            | 5                  | 2033.97          | 4        | 2        | 3        | 423         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| NF-18595     | Nicole Fjeld            | 2017-12-30        | 2017-09-07     | 114           | 7                  | 2031.47          | 2        | 4        | 3        | 243         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| VB-21745     | Victoria Brennan        | 2017-12-30        | 2017-11-06     | 54            | 6                  | 2005.60          | 3        | 3        | 3        | 333         | 9                 | CLIENTE EN DESARROLLO       |
-| JO-15280     | Jas O'Carroll           | 2017-12-30        | 2017-09-29     | 92            | 6                  | 1934.27          | 3        | 3        | 3        | 333         | 9                 | CLIENTE EN DESARROLLO       |
-| GD-14590     | Giulietta Dortch        | 2017-12-30        | 2017-12-25     | 5             | 4                  | 1888.07          | 5        | 1        | 3        | 513         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| SG-20470     | Sheri Gordon            | 2017-12-30        | 2017-06-30     | 183           | 8                  | 1884.80          | 2        | 4        | 3        | 243         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| SP-20650     | Stephanie Phelps        | 2017-12-30        | 2016-12-09     | 386           | 9                  | 1872.44          | 1        | 5        | 3        | 153         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| NG-18355     | Nat Gilpin              | 2017-12-30        | 2017-11-12     | 48            | 5                  | 1869.58          | 4        | 2        | 3        | 423         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| PR-18880     | Patrick Ryan            | 2017-12-30        | 2017-11-24     | 36            | 5                  | 1840.18          | 4        | 2        | 3        | 423         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| AJ-10945     | Ashley Jarboe           | 2017-12-30        | 2017-10-06     | 85            | 7                  | 1839.24          | 3        | 3        | 3        | 333         | 9                 | CLIENTE EN DESARROLLO       |
-| PJ-19015     | Pauline Johnson         | 2017-12-30        | 2017-08-18     | 134           | 7                  | 1824.23          | 2        | 4        | 3        | 243         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| JM-15265     | Janet Molinari          | 2017-12-30        | 2017-11-23     | 37            | 5                  | 1804.15          | 4        | 2        | 3        | 423         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| JM-15535     | Jessica Myrick          | 2017-12-30        | 2017-09-19     | 102           | 7                  | 1733.44          | 3        | 4        | 2        | 342         | 9                 | RECURRENTE                  |
-| DK-12985     | Darren Koutras          | 2017-12-30        | 2017-12-23     | 7             | 5                  | 1687.04          | 5        | 2        | 2        | 522         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| JL-15175     | James Lanier            | 2017-12-30        | 2017-12-24     | 6             | 5                  | 1571.52          | 5        | 2        | 2        | 522         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| DL-12865     | Dan Lawera              | 2017-12-30        | 2017-09-21     | 100           | 8                  | 1503.11          | 3        | 4        | 2        | 342         | 9                 | RECURRENTE                  |
-| BN-11515     | Bradley Nguyen          | 2017-12-30        | 2017-12-21     | 9             | 5                  | 1459.34          | 5        | 2        | 2        | 522         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| PB-19150     | Philip Brown            | 2017-12-30        | 2017-09-24     | 97            | 8                  | 1456.95          | 3        | 4        | 2        | 342         | 9                 | RECURRENTE                  |
-| FG-14260     | Frank Gastineau         | 2017-12-30        | 2017-11-26     | 34            | 7                  | 1383.14          | 4        | 3        | 2        | 432         | 9                 | CLIENTE EN DESARROLLO       |
-| SJ-20215     | Sarah Jordon            | 2017-12-30        | 2017-12-01     | 29            | 6                  | 1341.04          | 4        | 3        | 2        | 432         | 9                 | CLIENTE EN DESARROLLO       |
-| BM-11785     | Bryan Mills             | 2017-12-30        | 2017-05-26     | 218           | 10                 | 1338.84          | 2        | 5        | 2        | 252         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| DO-13435     | Denny Ordway            | 2017-12-30        | 2017-08-19     | 133           | 9                  | 1300.03          | 2        | 5        | 2        | 252         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| HR-14770     | Hallie Redmond          | 2017-12-30        | 2017-12-17     | 13            | 5                  | 1299.29          | 5        | 2        | 2        | 522         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| PS-18970     | Paul Stevenson          | 2017-12-30        | 2017-10-22     | 69            | 8                  | 1278.64          | 3        | 4        | 2        | 342         | 9                 | RECURRENTE                  |
-| DO-13645     | Doug O'Connell          | 2017-12-30        | 2017-12-04     | 26            | 7                  | 1267.32          | 4        | 3        | 2        | 432         | 9                 | CLIENTE EN DESARROLLO       |
-| GM-14500     | Gene McClure            | 2017-12-30        | 2017-09-15     | 106           | 10                 | 1255.68          | 2        | 5        | 2        | 252         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| TC-21475     | Tony Chapman            | 2017-12-30        | 2017-07-30     | 153           | 9                  | 1244.98          | 2        | 5        | 2        | 252         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| DC-13285     | Debra Catini            | 2017-12-30        | 2017-12-07     | 23            | 5                  | 1174.62          | 5        | 2        | 2        | 522         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| DV-13045     | Darrin Van Huff         | 2017-12-30        | 2017-12-11     | 19            | 5                  | 1119.48          | 5        | 2        | 2        | 522         | 9                 | RECIENTE - BAJA FRECUENCIA  |
-| SW-20245     | Scot Wooten             | 2017-12-30        | 2017-10-10     | 81            | 7                  | 1085.08          | 3        | 4        | 2        | 342         | 9                 | RECURRENTE                  |
-| JF-15490     | Jeremy Farry            | 2017-12-30        | 2017-08-31     | 121           | 11                 | 1082.92          | 2        | 5        | 2        | 252         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| DP-13000     | Darren Powers           | 2017-12-30        | 2017-08-26     | 126           | 9                  | 1050.64          | 2        | 5        | 2        | 252         | 9                 | EN RIESGO - ANTES VALIOSO   |
-| LS-17245     | Lynn Smith              | 2017-12-30        | 2017-11-26     | 34            | 6                  | 1008.14          | 4        | 3        | 2        | 432         | 9                 | CLIENTE EN DESARROLLO       |
-| JH-15910     | Jonathan Howell         | 2017-12-30        | 2017-11-19     | 41            | 7                  | 959.48           | 4        | 4        | 1        | 441         | 9                 | RECURRENTE                  |
-| MS-17980     | Michael Stewart         | 2017-12-30        | 2017-12-04     | 26            | 6                  | 855.12           | 5        | 3        | 1        | 531         | 9                 | CLIENTE EN DESARROLLO       |
-| VF-21715     | Vicky Freymann          | 2017-12-30        | 2017-12-17     | 13            | 5                  | 847.94           | 5        | 3        | 1        | 531         | 9                 | CLIENTE EN DESARROLLO       |
-| MG-17890     | Michael Granlund        | 2017-12-30        | 2017-09-22     | 99            | 9                  | 776.38           | 3        | 5        | 1        | 351         | 9                 | RECURRENTE                  |
-| MM-18280     | Muhammed MacIntyre      | 2017-12-30        | 2017-10-06     | 85            | 9                  | 775.41           | 3        | 5        | 1        | 351         | 9                 | RECURRENTE                  |
-| JB-16000     | Joy Bell-               | 2017-12-30        | 2017-11-17     | 43            | 7                  | 644.12           | 4        | 4        | 1        | 441         | 9                 | RECURRENTE                  |
-| TC-20980     | Tamara Chand            | 2017-12-30        | 2016-11-26     | 399           | 5                  | 19052.22         | 1        | 2        | 5        | 125         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| BS-11365     | Bill Shonely            | 2017-12-30        | 2016-06-20     | 558           | 5                  | 10501.65         | 1        | 2        | 5        | 125         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| PF-19120     | Peter Fuller            | 2017-12-30        | 2015-09-17     | 835           | 4                  | 9062.86          | 1        | 2        | 5        | 125         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| KD-16270     | Karen Daniels           | 2017-12-30        | 2016-09-02     | 484           | 5                  | 8282.36          | 1        | 2        | 5        | 125         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| GM-14695     | Greg Maxwell            | 2017-12-30        | 2017-09-04     | 117           | 3                  | 6049.97          | 2        | 1        | 5        | 215         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| MC-17425     | Mark Cousins            | 2017-12-30        | 2016-11-26     | 399           | 5                  | 4432.14          | 1        | 2        | 5        | 125         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| BE-11335     | Bill Eplett             | 2017-12-30        | 2017-09-02     | 119           | 5                  | 4204.68          | 2        | 2        | 4        | 224         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| KC-16540     | Kelly Collister         | 2017-12-30        | 2017-09-24     | 97            | 4                  | 3908.26          | 3        | 1        | 4        | 314         | 8                 | CLIENTE EN DESARROLLO       |
-| TS-21655     | Trudy Schmidt           | 2017-12-30        | 2017-05-06     | 238           | 5                  | 3368.09          | 1        | 3        | 4        | 134         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| CK-12325     | Christine Kargatis      | 2017-12-30        | 2017-09-01     | 120           | 5                  | 2945.32          | 2        | 2        | 4        | 224         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| RD-19660     | Robert Dilbeck          | 2017-12-30        | 2017-09-07     | 114           | 5                  | 2786.63          | 2        | 2        | 4        | 224         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| BT-11530     | Bradley Talbott         | 2017-12-30        | 2017-09-30     | 91            | 5                  | 2684.49          | 3        | 2        | 3        | 323         | 8                 | CLIENTE EN DESARROLLO       |
-| EJ-14155     | Eva Jacobs              | 2017-12-30        | 2017-11-03     | 57            | 5                  | 2656.69          | 3        | 2        | 3        | 323         | 8                 | CLIENTE EN DESARROLLO       |
-| CC-12145     | Charles Crestani        | 2017-12-30        | 2017-09-15     | 106           | 7                  | 2471.65          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| MA-17995     | Michelle Arnett         | 2017-12-30        | 2017-06-27     | 186           | 6                  | 2453.28          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| MH-17290     | Marc Harrigan           | 2017-12-30        | 2017-09-02     | 119           | 6                  | 2394.03          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| MG-17680     | Maureen Gastineau       | 2017-12-30        | 2017-09-29     | 92            | 4                  | 2350.19          | 3        | 2        | 3        | 323         | 8                 | CLIENTE EN DESARROLLO       |
-| BE-11410     | Bobby Elias             | 2017-12-30        | 2017-09-23     | 98            | 5                  | 2261.44          | 3        | 2        | 3        | 323         | 8                 | CLIENTE EN DESARROLLO       |
-| LW-16825     | Laurel Workman          | 2017-12-30        | 2017-10-03     | 88            | 5                  | 2238.06          | 3        | 2        | 3        | 323         | 8                 | CLIENTE EN DESARROLLO       |
-| PS-18760     | Pamela Stobb            | 2017-12-30        | 2017-09-14     | 107           | 6                  | 2181.48          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| DN-13690     | Duane Noonan            | 2017-12-30        | 2017-05-27     | 217           | 7                  | 2139.79          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| LC-17050     | Liz Carlisle            | 2017-12-30        | 2017-11-06     | 54            | 5                  | 2095.06          | 3        | 2        | 3        | 323         | 8                 | CLIENTE EN DESARROLLO       |
-| RB-19705     | Roger Barcio            | 2017-12-30        | 2017-11-06     | 54            | 4                  | 2067.45          | 3        | 2        | 3        | 323         | 8                 | CLIENTE EN DESARROLLO       |
-| TS-21430     | Tom Stivers             | 2017-12-30        | 2017-07-11     | 172           | 5                  | 2054.14          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| JF-15355     | Jay Fein                | 2017-12-30        | 2017-09-16     | 105           | 6                  | 1911.84          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| SN-20560     | Skye Norling            | 2017-12-30        | 2017-09-10     | 111           | 6                  | 1860.42          | 2        | 3        | 3        | 233         | 8                 | EN RIESGO DE ABANDONO       |
-| LH-17155     | Logan Haushalter        | 2017-12-30        | 2016-12-10     | 385           | 9                  | 1739.69          | 1        | 5        | 2        | 152         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| AH-10120     | Adrian Hane             | 2017-12-30        | 2017-10-31     | 60            | 7                  | 1735.51          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-| TZ-21580     | Tracy Zic               | 2017-12-30        | 2017-11-25     | 35            | 4                  | 1707.29          | 4        | 2        | 2        | 422         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| BP-11155     | Becky Pak               | 2017-12-30        | 2017-10-02     | 89            | 6                  | 1697.86          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-| MO-17800     | Meg O'Connel            | 2017-12-30        | 2017-09-17     | 104           | 8                  | 1687.03          | 2        | 4        | 2        | 242         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| CM-12115     | Chad McGuire            | 2017-12-30        | 2017-12-22     | 8             | 4                  | 1661.61          | 5        | 1        | 2        | 512         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| EB-13975     | Erica Bern              | 2017-12-30        | 2017-12-30     | 0             | 4                  | 1643.26          | 5        | 1        | 2        | 512         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| KB-16315     | Karl Braun              | 2017-12-30        | 2017-03-09     | 296           | 9                  | 1569.46          | 1        | 5        | 2        | 152         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| ON-18715     | Odella Nelson           | 2017-12-30        | 2016-11-15     | 410           | 9                  | 1567.52          | 1        | 5        | 2        | 152         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| BD-11620     | Brian DeCherney         | 2017-12-30        | 2017-10-22     | 69            | 6                  | 1538.11          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-| BD-11725     | Bruce Degenhardt        | 2017-12-30        | 2017-09-28     | 93            | 6                  | 1526.50          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-| TT-21220     | Thomas Thornton         | 2017-12-30        | 2017-06-30     | 183           | 8                  | 1427.04          | 2        | 4        | 2        | 242         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| CA-12310     | Christine Abelman       | 2017-12-30        | 2017-12-17     | 13            | 4                  | 1421.95          | 5        | 1        | 2        | 512         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| NG-18430     | Nathan Gelder           | 2017-12-30        | 2017-11-12     | 48            | 5                  | 1395.94          | 4        | 2        | 2        | 422         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| MD-17860     | Michael Dominguez       | 2017-12-30        | 2017-11-24     | 36            | 5                  | 1204.91          | 4        | 2        | 2        | 422         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| EB-14170     | Evan Bailliet           | 2017-12-30        | 2017-10-09     | 82            | 6                  | 1186.33          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-| BP-11230     | Benjamin Patterson      | 2017-12-30        | 2017-11-21     | 39            | 5                  | 1181.49          | 4        | 2        | 2        | 422         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| DW-13195     | David Wiener            | 2017-12-30        | 2017-10-22     | 69            | 6                  | 1080.75          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| TH-21235     | Tiffany House           | 2017-12-30        | 2017-09-04     | 117           | 8                  | 1022.20          | 2        | 4        | 2        | 242         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| LS-17200     | Luke Schmidt            | 2017-12-30        | 2017-09-25     | 96            | 6                  | 1010.26          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-| BG-11740     | Bruce Geld              | 2017-12-30        | 2017-11-03     | 57            | 6                  | 1006.36          | 3        | 3        | 2        | 332         | 8                 | CLIENTE EN DESARROLLO       |
-| RD-19930     | Russell D'Ascenzo       | 2017-12-30        | 2017-11-18     | 42            | 4                  | 970.94           | 4        | 2        | 2        | 422         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| AB-10150     | Aimee Bixby             | 2017-12-30        | 2017-11-19     | 41            | 5                  | 966.71           | 4        | 2        | 2        | 422         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| AB-10255     | Alejandro Ballentine    | 2017-12-30        | 2017-07-17     | 166           | 9                  | 914.53           | 2        | 5        | 1        | 251         | 8                 | EN RIESGO - ANTES VALIOSO   |
-| CG-12040     | Catherine Glotzbach     | 2017-12-30        | 2017-11-11     | 49            | 6                  | 904.47           | 4        | 3        | 1        | 431         | 8                 | CLIENTE EN DESARROLLO       |
-| JM-15655     | Jim Mitchum             | 2017-12-30        | 2017-12-22     | 8             | 5                  | 864.95           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| SF-20065     | Sandra Flanagan         | 2017-12-30        | 2017-11-01     | 59            | 7                  | 763.55           | 3        | 4        | 1        | 341         | 8                 | RECURRENTE                  |
-| AG-10330     | Alex Grayson            | 2017-12-30        | 2017-12-22     | 8             | 5                  | 660.97           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| LO-17170     | Lori Olson              | 2017-12-30        | 2017-12-28     | 2             | 5                  | 644.35           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| NK-18490     | Neil Knudson            | 2017-12-30        | 2017-10-21     | 70            | 7                  | 572.05           | 3        | 4        | 1        | 341         | 8                 | RECURRENTE                  |
-| RB-19570     | Rob Beeghly             | 2017-12-30        | 2017-12-05     | 25            | 5                  | 528.55           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| KM-16660     | Khloe Miller            | 2017-12-30        | 2017-12-15     | 15            | 5                  | 453.54           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| JM-15580     | Jill Matthias           | 2017-12-30        | 2017-12-30     | 0             | 5                  | 303.95           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| DD-13570     | Dorothy Dickinson       | 2017-12-30        | 2017-11-19     | 41            | 6                  | 269.54           | 4        | 3        | 1        | 431         | 8                 | CLIENTE EN DESARROLLO       |
-| AR-10510     | Andrew Roberts          | 2017-12-30        | 2017-12-16     | 14            | 5                  | 264.86           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| PL-18925     | Paul Lucas              | 2017-12-30        | 2017-12-15     | 15            | 5                  | 239.48           | 5        | 2        | 1        | 521         | 8                 | RECIENTE - BAJA FRECUENCIA  |
-| BM-11140     | Becky Martin            | 2017-12-30        | 2017-02-26     | 307           | 4                  | 11789.63         | 1        | 1        | 5        | 115         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| JS-15880     | John Stevenson          | 2017-12-30        | 2016-07-14     | 534           | 5                  | 3868.02          | 1        | 2        | 4        | 124         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| SC-20020     | Sam Craven              | 2017-12-30        | 2015-11-10     | 781           | 5                  | 3362.96          | 1        | 2        | 4        | 124         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| TG-21310     | Toby Gnade              | 2017-12-30        | 2017-01-27     | 337           | 5                  | 3058.37          | 1        | 2        | 4        | 124         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| DB-12970     | Darren Budd             | 2017-12-30        | 2017-05-03     | 241           | 5                  | 2839.23          | 1        | 2        | 4        | 124         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| CV-12295     | Christina VanderZanden  | 2017-12-30        | 2017-04-20     | 254           | 5                  | 2830.63          | 1        | 2        | 4        | 124         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| LL-16840     | Lauren Leatherbury      | 2017-12-30        | 2017-04-25     | 249           | 6                  | 2741.20          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| JL-15850     | John Lucas              | 2017-12-30        | 2016-04-25     | 614           | 6                  | 2725.26          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| BO-11350     | Bill Overfelt           | 2017-12-30        | 2017-08-15     | 137           | 5                  | 2682.73          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| EM-13810     | Eleni McCrary           | 2017-12-30        | 2017-08-20     | 132           | 5                  | 2567.01          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| MZ-17515     | Mary Zewe               | 2017-12-30        | 2017-03-23     | 282           | 6                  | 2564.91          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| NC-18340     | Nat Carroll             | 2017-12-30        | 2017-05-20     | 224           | 5                  | 2461.40          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| TH-21100     | Thea Hendricks          | 2017-12-30        | 2017-01-20     | 344           | 5                  | 2422.82          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| NR-18550     | Nick Radford            | 2017-12-30        | 2017-06-03     | 210           | 5                  | 2367.28          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| CL-12700     | Craig Leslie            | 2017-12-30        | 2017-09-16     | 105           | 5                  | 2353.59          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| AR-10405     | Allen Rosenblatt        | 2017-12-30        | 2017-08-27     | 125           | 5                  | 2236.13          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| PF-19225     | Phillip Flathmann       | 2017-12-30        | 2017-09-07     | 114           | 5                  | 2206.13          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| JL-15235     | Janet Lee               | 2017-12-30        | 2017-09-02     | 119           | 5                  | 2203.70          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| TB-21280     | Toby Braunhardt         | 2017-12-30        | 2016-05-26     | 583           | 6                  | 2198.45          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| BT-11395     | Bill Tyler              | 2017-12-30        | 2017-03-03     | 302           | 6                  | 2186.61          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| TS-21160     | Theresa Swint           | 2017-12-30        | 2016-08-13     | 504           | 6                  | 2163.62          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| JD-15790     | John Dryer              | 2017-12-30        | 2017-09-04     | 117           | 5                  | 2152.35          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| CR-12580     | Clay Rozendal           | 2017-12-30        | 2017-11-03     | 57            | 4                  | 2148.85          | 3        | 1        | 3        | 313         | 7                 | CLIENTE EN DESARROLLO       |
-| KC-16255     | Karen Carlisle          | 2017-12-30        | 2016-11-18     | 407           | 6                  | 2120.95          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| TG-21640     | Trudy Glocke            | 2017-12-30        | 2017-09-07     | 114           | 4                  | 2074.66          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| LR-17035     | Lisa Ryan               | 2017-12-30        | 2017-08-20     | 132           | 5                  | 1879.31          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| NC-18625     | Noah Childs             | 2017-12-30        | 2017-06-09     | 204           | 5                  | 1821.74          | 2        | 2        | 3        | 223         | 7                 | EN RIESGO DE ABANDONO       |
-| CC-12100     | Chad Cunningham         | 2017-12-30        | 2016-09-29     | 457           | 6                  | 1770.95          | 1        | 3        | 3        | 133         | 7                 | EN RIESGO DE ABANDONO       |
-| DS-13030     | Darrin Sayre            | 2017-12-30        | 2017-09-28     | 93            | 4                  | 1762.21          | 3        | 1        | 3        | 313         | 7                 | CLIENTE EN DESARROLLO       |
-| BW-11200     | Ben Wallace             | 2017-12-30        | 2017-06-10     | 203           | 6                  | 1738.41          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| RA-19945     | Ryan Akin               | 2017-12-30        | 2017-10-30     | 61            | 5                  | 1686.92          | 3        | 2        | 2        | 322         | 7                 | CLIENTE EN DESARROLLO       |
-| CM-11815     | Candace McMahon         | 2017-12-30        | 2017-08-21     | 131           | 6                  | 1673.89          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| AZ-10750     | Annie Zypern            | 2017-12-30        | 2017-07-23     | 160           | 6                  | 1622.02          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| TB-21250     | Tim Brockman            | 2017-12-30        | 2017-01-15     | 349           | 7                  | 1602.38          | 1        | 4        | 2        | 142         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| AB-10600     | Ann Blume               | 2017-12-30        | 2017-11-10     | 50            | 4                  | 1515.86          | 4        | 1        | 2        | 412         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| JG-15805     | John Grady              | 2017-12-30        | 2017-05-21     | 223           | 6                  | 1507.02          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| ZD-21925     | Zuschuss Donatelli      | 2017-12-30        | 2017-06-11     | 202           | 5                  | 1493.94          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| NL-18310     | Nancy Lomonaco          | 2017-12-30        | 2017-11-02     | 58            | 4                  | 1418.09          | 3        | 2        | 2        | 322         | 7                 | CLIENTE EN DESARROLLO       |
-| JE-15475     | Jeremy Ellison          | 2017-12-30        | 2017-06-20     | 193           | 6                  | 1388.68          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| BF-11005     | Barry Franz             | 2017-12-30        | 2017-11-21     | 39            | 4                  | 1333.88          | 4        | 1        | 2        | 412         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| DM-12955     | Dario Medina            | 2017-12-30        | 2017-09-07     | 114           | 7                  | 1322.03          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| EK-13795     | Eileen Kiefer           | 2017-12-30        | 2017-11-16     | 44            | 4                  | 1303.48          | 4        | 1        | 2        | 412         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| CS-11845     | Cari Sayre              | 2017-12-30        | 2017-09-30     | 91            | 5                  | 1278.95          | 3        | 2        | 2        | 322         | 7                 | CLIENTE EN DESARROLLO       |
-| SV-20815     | Stuart Van              | 2017-12-30        | 2017-10-15     | 76            | 4                  | 1271.09          | 3        | 2        | 2        | 322         | 7                 | CLIENTE EN DESARROLLO       |
-| ME-18010     | Michelle Ellison        | 2017-12-30        | 2017-09-29     | 92            | 4                  | 1256.94          | 3        | 2        | 2        | 322         | 7                 | CLIENTE EN DESARROLLO       |
-| SC-20680     | Steve Carroll           | 2017-12-30        | 2017-08-26     | 126           | 6                  | 1254.64          | 2        | 3        | 2        | 232         | 7                 | EN RIESGO DE ABANDONO       |
-| CD-12280     | Christina DeMoss        | 2017-12-30        | 2017-11-18     | 42            | 2                  | 1205.58          | 4        | 1        | 2        | 412         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| JS-15685     | Jim Sink                | 2017-12-30        | 2017-11-18     | 42            | 4                  | 1131.06          | 4        | 1        | 2        | 412         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| PO-19195     | Phillina Ober           | 2017-12-30        | 2017-10-05     | 86            | 5                  | 1056.86          | 3        | 2        | 2        | 322         | 7                 | CLIENTE EN DESARROLLO       |
-| VP-21730     | Victor Preis            | 2017-12-30        | 2017-11-30     | 30            | 3                  | 993.90           | 4        | 1        | 2        | 412         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| BP-11050     | Barry Pond              | 2017-12-30        | 2017-10-08     | 83            | 5                  | 983.42           | 3        | 2        | 2        | 322         | 7                 | CLIENTE EN DESARROLLO       |
-| HZ-14950     | Henia Zydlo             | 2017-12-30        | 2017-11-25     | 35            | 5                  | 886.52           | 4        | 2        | 1        | 421         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| HE-14800     | Harold Engle            | 2017-12-30        | 2017-12-18     | 12            | 4                  | 883.53           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| SK-19990     | Sally Knutson           | 2017-12-30        | 2017-12-22     | 8             | 3                  | 883.41           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| AS-10630     | Ann Steele              | 2017-12-30        | 2017-09-29     | 92            | 7                  | 833.40           | 3        | 3        | 1        | 331         | 7                 | CLIENTE EN DESARROLLO       |
-| TB-21190     | Thomas Brumley          | 2017-12-30        | 2017-11-11     | 49            | 4                  | 816.17           | 4        | 2        | 1        | 421         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| AM-10360     | Alice McCarthy          | 2017-12-30        | 2017-12-02     | 28            | 5                  | 814.01           | 4        | 2        | 1        | 421         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| BM-11575     | Brendan Murry           | 2017-12-30        | 2017-09-21     | 100           | 6                  | 808.16           | 3        | 3        | 1        | 331         | 7                 | CLIENTE EN DESARROLLO       |
-| DK-13150     | David Kendrick          | 2017-12-30        | 2017-12-20     | 10            | 2                  | 797.83           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| PB-18805     | Patrick Bzostek         | 2017-12-30        | 2017-12-05     | 25            | 3                  | 740.36           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| AH-10585     | Angele Hood             | 2017-12-30        | 2017-12-09     | 21            | 4                  | 738.50           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| EH-13945     | Eric Hoffmann           | 2017-12-30        | 2017-05-27     | 217           | 8                  | 684.17           | 2        | 4        | 1        | 241         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| BK-11260     | Berenike Kampe          | 2017-12-30        | 2017-10-14     | 77            | 6                  | 659.14           | 3        | 3        | 1        | 331         | 7                 | CLIENTE EN DESARROLLO       |
-| AW-10840     | Anthony Witt            | 2017-12-30        | 2017-12-10     | 20            | 4                  | 649.38           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| RR-19315     | Ralph Ritter            | 2017-12-30        | 2017-12-11     | 19            | 2                  | 615.93           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| BF-10975     | Barbara Fisher          | 2017-12-30        | 2017-09-30     | 91            | 7                  | 599.80           | 3        | 3        | 1        | 331         | 7                 | CLIENTE EN DESARROLLO       |
-| MZ-17335     | Maria Zettner           | 2017-12-30        | 2017-11-30     | 30            | 4                  | 593.61           | 4        | 2        | 1        | 421         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| BD-11635     | Brian Derr              | 2017-12-30        | 2017-12-21     | 9             | 3                  | 582.65           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| AY-10555     | Andy Yotov              | 2017-12-30        | 2017-12-16     | 14            | 4                  | 497.01           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| ST-20530     | Shui Tom                | 2017-12-30        | 2017-08-27     | 125           | 7                  | 433.34           | 2        | 4        | 1        | 241         | 7                 | EN RIESGO - ANTES VALIOSO   |
-| LT-16765     | Larry Tron              | 2017-12-30        | 2017-12-04     | 26            | 3                  | 329.88           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| JH-15430     | Jennifer Halladay       | 2017-12-30        | 2017-12-25     | 5             | 4                  | 309.28           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| SC-20800     | Stuart Calhoun          | 2017-12-30        | 2017-11-30     | 30            | 4                  | 279.26           | 4        | 2        | 1        | 421         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| BF-11080     | Bart Folk               | 2017-12-30        | 2017-12-05     | 25            | 3                  | 272.95           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| BN-11470     | Brad Norvell            | 2017-12-30        | 2017-12-06     | 24            | 4                  | 265.30           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| GH-14665     | Greg Hansen             | 2017-12-30        | 2017-12-28     | 2             | 2                  | 146.94           | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| RS-19870     | Roy Skaria              | 2017-12-30        | 2017-12-11     | 19            | 2                  | 22.33            | 5        | 1        | 1        | 511         | 7                 | RECIENTE - BAJA FRECUENCIA  |
-| CM-12715     | Craig Molinari          | 2017-12-30        | 2015-03-01     | 1035          | 4                  | 3984.45          | 1        | 1        | 4        | 114         | 6                 | EN RIESGO - ANTES VALIOSO   |
-| BS-11665     | Brian Stugart           | 2017-12-30        | 2016-05-27     | 582           | 3                  | 3288.11          | 1        | 1        | 4        | 114         | 6                 | EN RIESGO - ANTES VALIOSO   |
-| LC-16960     | Lindsay Castell         | 2017-12-30        | 2016-10-20     | 436           | 4                  | 3246.63          | 1        | 1        | 4        | 114         | 6                 | EN RIESGO - ANTES VALIOSO   |
-| IM-15055     | Ionia McGrath           | 2017-12-30        | 2016-11-16     | 409           | 3                  | 2872.63          | 1        | 1        | 4        | 114         | 6                 | EN RIESGO - ANTES VALIOSO   |
-| CC-12685     | Craig Carroll           | 2017-12-30        | 2015-10-23     | 799           | 4                  | 2854.12          | 1        | 1        | 4        | 114         | 6                 | EN RIESGO - ANTES VALIOSO   |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| AG-10270     | Alejandro Grove         | 2017-12-30        | 2017-03-27     | 278           | 5                  | 2582.90          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| BT-11305     | Beth Thompson           | 2017-12-30        | 2017-01-28     | 336           | 5                  | 2567.66          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| DE-13255     | Deanra Eno              | 2017-12-30        | 2016-01-11     | 719           | 5                  | 2550.87          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| AH-10465     | Amy Hunt                | 2017-12-30        | 2017-05-14     | 230           | 5                  | 2495.39          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| GZ-14545     | George Zrebassa         | 2017-12-30        | 2017-07-26     | 157           | 4                  | 2454.62          | 2        | 1        | 3        | 213         | 6                 | EN RIESGO DE ABANDONO       |
-| CM-12235     | Chris McAfee            | 2017-12-30        | 2016-12-10     | 385           | 5                  | 2305.71          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| FH-14350     | Fred Harton             | 2017-12-30        | 2017-06-01     | 212           | 4                  | 2271.28          | 2        | 1        | 3        | 213         | 6                 | EN RIESGO DE ABANDONO       |
-| KD-16615     | Ken Dana                | 2017-12-30        | 2017-03-16     | 289           | 5                  | 2243.51          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| TP-21565     | Tracy Poddar            | 2017-12-30        | 2017-01-14     | 350           | 4                  | 1936.64          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| CD-12790     | Cynthia Delaney         | 2017-12-30        | 2016-11-26     | 399           | 5                  | 1860.73          | 1        | 2        | 3        | 123         | 6                 | EN RIESGO DE ABANDONO       |
-| BE-11455     | Brad Eason              | 2017-12-30        | 2017-04-20     | 254           | 6                  | 1727.65          | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| MS-17710     | Maurice Satty           | 2017-12-30        | 2016-11-12     | 413           | 6                  | 1613.40          | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| CR-12730     | Craig Reiter            | 2017-12-30        | 2017-10-13     | 78            | 4                  | 1600.55          | 3        | 1        | 2        | 312         | 6                 | CLIENTE EN DESARROLLO       |
-| AH-10195     | Alan Haines             | 2017-12-30        | 2017-11-05     | 55            | 4                  | 1587.45          | 3        | 1        | 2        | 312         | 6                 | CLIENTE EN DESARROLLO       |
-| BF-11215     | Benjamin Farhat         | 2017-12-30        | 2017-10-26     | 65            | 4                  | 1585.16          | 3        | 1        | 2        | 312         | 6                 | CLIENTE EN DESARROLLO       |
-| TB-21055     | Ted Butterfield         | 2017-12-30        | 2017-09-02     | 119           | 5                  | 1467.88          | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| RM-19375     | Raymond Messe           | 2017-12-30        | 2017-01-19     | 345           | 6                  | 1453.47          | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| CR-12820     | Cyra Reiten             | 2017-12-30        | 2017-10-06     | 85            | 3                  | 1397.87          | 3        | 1        | 2        | 312         | 6                 | CLIENTE EN DESARROLLO       |
-| MT-18070     | Michelle Tran           | 2017-12-30        | 2017-06-10     | 203           | 4                  | 1319.45          | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| MM-17260     | Magdelene Morse         | 2017-12-30        | 2017-07-15     | 168           | 4                  | 1314.02          | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| SP-20545     | Sibella Parks           | 2017-12-30        | 2017-02-06     | 327           | 6                  | 1306.09          | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| MH-17620     | Matt Hagelstein         | 2017-12-30        | 2017-07-28     | 155           | 4                  | 1252.80          | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| MG-17875     | Michael Grace           | 2017-12-30        | 2017-09-05     | 116           | 5                  | 1242.83          | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| NP-18685     | Nora Pelletier          | 2017-12-30        | 2016-11-19     | 406           | 6                  | 1228.70          | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| DW-13585     | Dorothy Wardle          | 2017-12-30        | 2017-05-02     | 242           | 7                  | 1204.85          | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| KC-16675     | Kimberly Carter         | 2017-12-30        | 2017-11-03     | 57            | 4                  | 1146.05          | 3        | 1        | 2        | 312         | 6                 | CLIENTE EN DESARROLLO       |
-| JO-15550     | Jesus Ocampo            | 2017-12-30        | 2017-05-29     | 215           | 5                  | 1090.84          | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| VS-21820     | Vivek Sundaresam        | 2017-12-30        | 2017-05-23     | 221           | 4                  | 1055.98          | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| RB-19330     | Randy Bradley           | 2017-12-30        | 2017-10-23     | 68            | 2                  | 1008.20          | 3        | 1        | 2        | 312         | 6                 | CLIENTE EN DESARROLLO       |
-| TS-21340     | Toby Swindell           | 2017-12-30        | 2017-05-18     | 226           | 5                  | 974.78           | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| RC-19825     | Roy Collins             | 2017-12-30        | 2016-12-26     | 369           | 6                  | 966.41           | 1        | 3        | 2        | 132         | 6                 | EN RIESGO DE ABANDONO       |
-| SS-20875     | Sung Shariari           | 2017-12-30        | 2017-09-01     | 120           | 5                  | 964.64           | 2        | 2        | 2        | 222         | 6                 | EN RIESGO DE ABANDONO       |
-| EH-14185     | Evan Henry              | 2017-12-30        | 2017-09-16     | 105           | 6                  | 923.88           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| MO-17500     | Mary O'Rourke           | 2017-12-30        | 2017-10-19     | 72            | 4                  | 922.49           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| SC-20575     | Sonia Cooley            | 2017-12-30        | 2017-09-29     | 92            | 5                  | 902.73           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| RC-19960     | Ryan Crowe              | 2017-12-30        | 2017-09-11     | 110           | 6                  | 885.75           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| JC-16105     | Julie Creighton         | 2017-12-30        | 2017-11-03     | 57            | 5                  | 858.58           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| VG-21790     | Vivek Gonzalez          | 2017-12-30        | 2017-07-29     | 154           | 6                  | 846.01           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| HG-14845     | Harry Greene            | 2017-12-30        | 2017-11-06     | 54            | 5                  | 785.63           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| LP-17080     | Liz Pelletier           | 2017-12-30        | 2017-11-20     | 40            | 4                  | 756.61           | 4        | 1        | 1        | 411         | 6                 | RECIENTE - BAJA FRECUENCIA  |
-| PA-19060     | Pete Armstrong          | 2017-12-30        | 2017-09-18     | 103           | 6                  | 729.41           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| PB-19105     | Peter B?hler            | 2017-12-30        | 2017-11-03     | 57            | 4                  | 688.32           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| TR-21325     | Toby Ritter             | 2017-12-30        | 2017-06-20     | 193           | 5                  | 675.94           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| AS-10240     | Alan Shonely            | 2017-12-30        | 2017-06-21     | 192           | 7                  | 584.61           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| CS-12460     | Chuck Sachs             | 2017-12-30        | 2017-12-03     | 27            | 2                  | 550.64           | 4        | 1        | 1        | 411         | 6                 | RECIENTE - BAJA FRECUENCIA  |
-| CS-11860     | Cari Schnelling         | 2017-12-30        | 2017-07-21     | 162           | 6                  | 537.63           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| JH-15820     | John Huston             | 2017-12-30        | 2017-07-09     | 174           | 6                  | 528.91           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| EC-14050     | Erin Creighton          | 2017-12-30        | 2017-11-07     | 53            | 5                  | 461.91           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| JD-16015     | Joy Daniels             | 2017-12-30        | 2017-09-09     | 112           | 6                  | 385.43           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| VM-21835     | Vivian Mathis           | 2017-12-30        | 2017-09-04     | 117           | 5                  | 380.69           | 2        | 3        | 1        | 231         | 6                 | EN RIESGO DE ABANDONO       |
-| DW-13540     | Don Weiss               | 2017-12-30        | 2017-09-23     | 98            | 5                  | 344.08           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| EM-14065     | Erin Mull               | 2017-12-30        | 2017-11-13     | 47            | 4                  | 228.99           | 4        | 1        | 1        | 411         | 6                 | RECIENTE - BAJA FRECUENCIA  |
-| GT-14755     | Guy Thornton            | 2017-12-30        | 2017-11-26     | 34            | 4                  | 226.44           | 4        | 1        | 1        | 411         | 6                 | RECIENTE - BAJA FRECUENCIA  |
-| PT-19090     | Pete Takahito           | 2017-12-30        | 2017-10-20     | 71            | 4                  | 160.57           | 3        | 2        | 1        | 321         | 6                 | CLIENTE EN DESARROLLO       |
-| CC-12550     | Clay Cheatham           | 2017-12-30        | 2017-12-03     | 27            | 3                  | 113.83           | 4        | 1        | 1        | 411         | 6                 | RECIENTE - BAJA FRECUENCIA  |
-| AS-10135     | Adrian Shami            | 2017-12-30        | 2017-11-19     | 41            | 2                  | 58.82            | 4        | 1        | 1        | 411         | 6                 | RECIENTE - BAJA FRECUENCIA  |
-| LB-16735     | Larry Blacks            | 2017-12-30        | 2017-11-12     | 48            | 3                  | 50.19            | 4        | 1        | 1        | 411         | 6                 | RECIENTE - BAJA FRECUENCIA  |
-| DF-13135     | David Flashing          | 2017-12-30        | 2016-01-30     | 700           | 3                  | 2390.53          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| JG-15115     | Jack Garza              | 2017-12-30        | 2015-12-03     | 758           | 3                  | 2358.68          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| JH-16180     | Justin Hirsh            | 2017-12-30        | 2016-11-21     | 404           | 4                  | 2256.39          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| EN-13780     | Edward Nazzal           | 2017-12-30        | 2017-03-18     | 287           | 4                  | 2199.37          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| EJ-13720     | Ed Jacobs               | 2017-12-30        | 2017-03-03     | 302           | 4                  | 2162.17          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| SH-20635     | Stefanie Holloman       | 2017-12-30        | 2015-11-26     | 765           | 2                  | 2096.39          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| RH-19600     | Rob Haberlin            | 2017-12-30        | 2016-07-14     | 534           | 3                  | 2085.74          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| DJ-13420     | Denny Joy               | 2017-12-30        | 2016-04-02     | 637           | 4                  | 2012.52          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| LD-17005     | Lisa DeCherney          | 2017-12-30        | 2016-11-11     | 414           | 4                  | 1961.93          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| AA-10480     | Andrew Allen            | 2017-12-30        | 2017-04-15     | 259           | 4                  | 1790.51          | 1        | 1        | 3        | 113         | 5                 | EN RIESGO DE ABANDONO       |
-| DB-13405     | Denny Blanton           | 2017-12-30        | 2017-06-26     | 187           | 4                  | 1711.69          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| CA-12055     | Cathy Armstrong         | 2017-12-30        | 2016-11-24     | 401           | 5                  | 1679.72          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| MC-18130     | Mike Caudle             | 2017-12-30        | 2016-12-26     | 369           | 5                  | 1582.00          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| BV-11245     | Benjamin Venier         | 2017-12-30        | 2017-01-30     | 334           | 5                  | 1523.27          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| RK-19300     | Ralph Kennedy           | 2017-12-30        | 2017-09-02     | 119           | 3                  | 1460.19          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| JS-15595     | Jill Stevenson          | 2017-12-30        | 2017-09-02     | 119           | 4                  | 1417.65          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| TB-21595     | Troy Blackwell          | 2017-12-30        | 2017-03-20     | 285           | 5                  | 1387.56          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| SB-20170     | Sarah Bern              | 2017-12-30        | 2017-06-12     | 201           | 3                  | 1348.02          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| LM-17065     | Liz MacKendrick         | 2017-12-30        | 2016-12-04     | 391           | 5                  | 1346.77          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| SJ-20500     | Shirley Jackson         | 2017-12-30        | 2017-04-21     | 253           | 5                  | 1318.78          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| Co-12640     | Corey-Lock              | 2017-12-30        | 2016-06-29     | 549           | 5                  | 1300.08          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| CL-11890     | Carl Ludwig             | 2017-12-30        | 2017-09-15     | 106           | 4                  | 1262.01          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| LW-17125     | Liz Willingham          | 2017-12-30        | 2017-06-08     | 205           | 3                  | 1259.04          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| TM-21490     | Tony Molinari           | 2017-12-30        | 2017-08-22     | 130           | 3                  | 1094.68          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| DB-13360     | Dennis Bolton           | 2017-12-30        | 2017-04-10     | 264           | 5                  | 1081.47          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| JC-15385     | Jenna Caffey            | 2017-12-30        | 2017-07-08     | 175           | 1                  | 1058.11          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| AR-10345     | Alex Russell            | 2017-12-30        | 2017-09-10     | 111           | 4                  | 1055.69          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| EM-14095     | Eudokia Martin          | 2017-12-30        | 2017-09-08     | 113           | 4                  | 1041.04          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| TC-21145     | Theresa Coyne           | 2017-12-30        | 2017-09-15     | 106           | 1                  | 1038.26          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| MK-18160     | Mike Kennedy            | 2017-12-30        | 2017-05-04     | 240           | 4                  | 1031.60          | 1        | 2        | 2        | 122         | 5                 | EN RIESGO DE ABANDONO       |
-| SW-20350     | Sean Wendt              | 2017-12-30        | 2017-07-21     | 162           | 3                  | 1019.04          | 2        | 1        | 2        | 212         | 5                 | EN RIESGO DE ABANDONO       |
-| EB-13930     | Eric Barreto            | 2017-12-30        | 2017-07-22     | 161           | 5                  | 944.60           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| EM-13960     | Eric Murdock            | 2017-12-30        | 2017-08-01     | 151           | 5                  | 933.70           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| JR-15700     | Jocasta Rupert          | 2017-12-30        | 2017-10-23     | 68            | 1                  | 863.88           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| TB-21355     | Todd Boyes              | 2017-12-30        | 2017-08-06     | 146           | 5                  | 834.33           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| EH-13990     | Erica Hackney           | 2017-12-30        | 2016-11-20     | 405           | 6                  | 825.95           | 1        | 3        | 1        | 131         | 5                 | EN RIESGO DE ABANDONO       |
-| BF-11275     | Beth Fritzler           | 2017-12-30        | 2017-11-03     | 57            | 3                  | 791.99           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| Dl-13600     | Dorris liebe            | 2017-12-30        | 2017-09-02     | 119           | 5                  | 755.60           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| IG-15085     | Ivan Gibson             | 2017-12-30        | 2017-10-20     | 71            | 4                  | 744.57           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| BB-10990     | Barry Blumstein         | 2017-12-30        | 2017-09-16     | 105           | 5                  | 744.34           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| ML-18040     | Michelle Lonsdale       | 2017-12-30        | 2017-10-12     | 79            | 3                  | 742.08           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| PH-18790     | Patricia Hirasaki       | 2017-12-30        | 2017-10-21     | 70            | 1                  | 729.65           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| BD-11770     | Bryan Davis             | 2017-12-30        | 2017-02-06     | 327           | 6                  | 658.47           | 1        | 3        | 1        | 131         | 5                 | EN RIESGO DE ABANDONO       |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| customer_id  |      customer_name      | fecha_referencia  | ultima_compra  | recency_dias  | frequency_ordenes  | monetary_ventas  | r_score  | f_score  | m_score  | codigo_rfm  | puntuacion_total  |          segmento           |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-| CD-11980     | Carol Darley            | 2017-12-30        | 2017-11-06     | 54            | 3                  | 639.77           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| MR-17545     | Mathew Reese            | 2017-12-30        | 2017-08-27     | 125           | 4                  | 639.18           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| AJ-10960     | Astrea Jones            | 2017-12-30        | 2017-10-17     | 74            | 3                  | 629.25           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| DL-13330     | Denise Leinenbach       | 2017-12-30        | 2017-11-03     | 57            | 4                  | 585.02           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| VG-21805     | Vivek Grady             | 2017-12-30        | 2017-03-19     | 286           | 5                  | 427.37           | 1        | 3        | 1        | 131         | 5                 | EN RIESGO DE ABANDONO       |
-| SS-20590     | Sonia Sunley            | 2017-12-30        | 2016-10-24     | 432           | 6                  | 418.49           | 1        | 3        | 1        | 131         | 5                 | EN RIESGO DE ABANDONO       |
-| HJ-14875     | Heather Jas             | 2017-12-30        | 2017-08-26     | 126           | 5                  | 358.10           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| HH-15010     | Hilary Holden           | 2017-12-30        | 2017-10-19     | 72            | 2                  | 218.67           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| AG-10390     | Allen Goldenen          | 2017-12-30        | 2017-09-07     | 114           | 5                  | 200.95           | 2        | 2        | 1        | 221         | 5                 | EN RIESGO DE ABANDONO       |
-| AG-10765     | Anthony Garverick       | 2017-12-30        | 2017-10-14     | 77            | 4                  | 170.58           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| ML-18265     | Muhammed Lee            | 2017-12-30        | 2017-09-21     | 100           | 2                  | 162.23           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| BO-11425     | Bobby Odegard           | 2017-12-30        | 2017-10-16     | 75            | 2                  | 130.83           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| EL-13735     | Ed Ludwig               | 2017-12-30        | 2017-10-14     | 77            | 2                  | 124.28           | 3        | 1        | 1        | 311         | 5                 | CLIENTE EN DESARROLLO       |
-| VT-21700     | Valerie Takahito        | 2017-12-30        | 2015-04-05     | 1000          | 2                  | 1736.60          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| CH-12070     | Cathy Hwang             | 2017-12-30        | 2016-02-08     | 691           | 3                  | 1537.24          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| AG-10525     | Andy Gerbode            | 2017-12-30        | 2015-09-07     | 845           | 4                  | 1455.04          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| PK-18910     | Paul Knutson            | 2017-12-30        | 2016-09-03     | 483           | 2                  | 1441.15          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| JW-16075     | Julia West              | 2017-12-30        | 2016-09-25     | 461           | 4                  | 1428.73          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| PM-18940     | Paul MacIntyre          | 2017-12-30        | 2016-12-09     | 386           | 3                  | 1405.40          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| DM-13525     | Don Miller              | 2017-12-30        | 2016-09-05     | 481           | 3                  | 1376.79          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| GH-14485     | Gene Hale               | 2017-12-30        | 2016-12-08     | 387           | 2                  | 1361.24          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| MG-17695     | Maureen Gnade           | 2017-12-30        | 2016-06-23     | 555           | 3                  | 1342.28          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| GR-14560     | Georgia Rosenberg       | 2017-12-30        | 2014-11-21     | 1135          | 2                  | 1284.38          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| ER-13855     | Elpida Rittenbach       | 2017-12-30        | 2016-11-04     | 421           | 3                  | 1245.79          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| JR-15670     | Jim Radford             | 2017-12-30        | 2016-05-16     | 593           | 2                  | 1156.66          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| CG-12520     | Claire Gute             | 2017-12-30        | 2017-01-26     | 338           | 3                  | 1148.78          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| CS-12490     | Cindy Schnelling        | 2017-12-30        | 2016-11-01     | 424           | 4                  | 1077.23          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| PC-19000     | Pauline Chand           | 2017-12-30        | 2015-08-01     | 882           | 2                  | 1061.49          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| DP-13165     | David Philippe          | 2017-12-30        | 2015-10-10     | 812           | 2                  | 1058.62          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| DH-13675     | Duane Huffman           | 2017-12-30        | 2015-11-15     | 776           | 4                  | 1043.10          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| SM-20905     | Susan MacKendrick       | 2017-12-30        | 2016-05-03     | 606           | 1                  | 1043.04          | 1        | 1        | 2        | 112         | 4                 | EN RIESGO DE ABANDONO       |
-| JF-15295     | Jason Fortune-          | 2017-12-30        | 2017-05-19     | 225           | 5                  | 955.12           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| RP-19270     | Rachel Payne            | 2017-12-30        | 2016-08-21     | 496           | 4                  | 954.65           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| MF-17665     | Maureen Fritzler        | 2017-12-30        | 2016-11-04     | 421           | 5                  | 937.04           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| KB-16405     | Katrina Bavinger        | 2017-12-30        | 2017-09-04     | 117           | 3                  | 908.82           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| RE-19450     | Richard Eichhorn        | 2017-12-30        | 2017-03-03     | 302           | 5                  | 876.70           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| CS-12175     | Charles Sheldon         | 2017-12-30        | 2017-05-12     | 232           | 5                  | 844.46           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| MC-17635     | Matthew Clasen          | 2017-12-30        | 2017-06-24     | 189           | 4                  | 795.15           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| JJ-15445     | Jennifer Jackson        | 2017-12-30        | 2016-09-03     | 483           | 5                  | 709.18           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| AC-10660     | Anna Chung              | 2017-12-30        | 2017-03-23     | 282           | 5                  | 657.32           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| MS-17530     | MaryBeth Skach          | 2017-12-30        | 2016-10-22     | 434           | 4                  | 475.66           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| JS-15940     | Joni Sundaresam         | 2017-12-30        | 2016-09-23     | 463           | 5                  | 469.17           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| MH-17440     | Mark Haberlin           | 2017-12-30        | 2016-12-19     | 376           | 4                  | 400.02           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| BW-11065     | Barry Weirich           | 2017-12-30        | 2017-06-01     | 212           | 3                  | 385.52           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| NF-18475     | Neil Franz?sisch        | 2017-12-30        | 2016-07-23     | 525           | 4                  | 377.16           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| MS-17830     | Melanie Seite           | 2017-12-30        | 2016-10-04     | 452           | 4                  | 370.35           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| AG-10300     | Aleksandra Gannaway     | 2017-12-30        | 2017-09-03     | 118           | 4                  | 367.55           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| EM-14200     | Evan Minnotte           | 2017-12-30        | 2017-07-25     | 158           | 3                  | 366.82           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| LH-16750     | Larry Hughes            | 2017-12-30        | 2017-08-01     | 151           | 3                  | 287.43           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| SC-20845     | Sung Chung              | 2017-12-30        | 2017-08-21     | 131           | 2                  | 280.63           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| SM-20005     | Sally Matthias          | 2017-12-30        | 2016-11-04     | 421           | 4                  | 244.49           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| RB-19645     | Robert Barroso          | 2017-12-30        | 2016-03-22     | 648           | 5                  | 221.08           | 1        | 2        | 1        | 121         | 4                 | EN RIESGO DE ABANDONO       |
-| MO-17950     | Michael Oakman          | 2017-12-30        | 2017-07-03     | 180           | 2                  | 154.29           | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| JC-15340     | Jasper Cacioppo         | 2017-12-30        | 2017-09-07     | 114           | 4                  | 71.26            | 2        | 1        | 1        | 211         | 4                 | EN RIESGO DE ABANDONO       |
-| BS-11800     | Bryan Spruell           | 2017-12-30        | 2017-04-09     | 265           | 2                  | 949.43           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| AC-10420     | Alyssa Crouse           | 2017-12-30        | 2017-05-12     | 232           | 3                  | 925.80           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| JB-15925     | Joni Blumstein          | 2017-12-30        | 2015-12-24     | 737           | 3                  | 900.55           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| AB-10015     | Aaron Bergman           | 2017-12-30        | 2016-11-10     | 415           | 3                  | 886.16           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| CS-12130     | Chad Sievert            | 2017-12-30        | 2016-08-28     | 489           | 4                  | 884.64           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| AF-10885     | Art Foster              | 2017-12-30        | 2016-11-10     | 415           | 4                  | 861.57           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| SW-20755     | Steven Ward             | 2017-12-30        | 2016-07-14     | 534           | 2                  | 758.70           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| RH-19555     | Ritsa Hightower         | 2017-12-30        | 2016-07-29     | 519           | 2                  | 740.38           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| HM-14980     | Henry MacAllister       | 2017-12-30        | 2017-04-27     | 247           | 4                  | 736.28           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| JD-16060     | Julia Dunbar            | 2017-12-30        | 2017-03-05     | 300           | 3                  | 695.44           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| SS-20515     | Shirley Schmidt         | 2017-12-30        | 2016-08-26     | 491           | 3                  | 613.40           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| BT-11440     | Bobby Trafton           | 2017-12-30        | 2016-06-18     | 560           | 4                  | 603.88           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| CM-11935     | Carlos Meador           | 2017-12-30        | 2016-01-22     | 708           | 2                  | 565.39           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| CR-12625     | Corey Roper             | 2017-12-30        | 2016-09-16     | 470           | 3                  | 475.90           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| KW-16570     | Kelly Williams          | 2017-12-30        | 2015-11-20     | 771           | 4                  | 449.10           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| TT-21265     | Tim Taslimi             | 2017-12-30        | 2016-11-19     | 406           | 3                  | 439.50           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| BT-11485     | Brad Thomas             | 2017-12-30        | 2016-03-11     | 659           | 2                  | 415.20           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| JK-15325     | Jason Klamczynski       | 2017-12-30        | 2017-03-18     | 287           | 3                  | 383.81           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| LS-17230     | Lycoris Saunders        | 2017-12-30        | 2015-11-14     | 777           | 3                  | 368.88           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| BD-11560     | Brendan Dodson          | 2017-12-30        | 2017-03-27     | 278           | 2                  | 320.54           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| LH-17020     | Lisa Hazard             | 2017-12-30        | 2017-05-05     | 239           | 4                  | 318.24           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| CM-12445     | Chuck Magee             | 2017-12-30        | 2016-10-20     | 436           | 3                  | 287.99           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| NB-18580     | Nicole Brennan          | 2017-12-30        | 2014-10-22     | 1165          | 2                  | 273.87           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| HD-14785     | Harold Dahlen           | 2017-12-30        | 2015-11-22     | 769           | 3                  | 251.36           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| GP-14740     | Guy Phonely             | 2017-12-30        | 2015-11-26     | 765           | 2                  | 236.53           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| JJ-15760     | Joel Jenkins            | 2017-12-30        | 2015-12-08     | 753           | 2                  | 195.00           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| AO-10810     | Anthony O'Donnell       | 2017-12-30        | 2016-08-16     | 501           | 1                  | 161.28           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| DA-13450     | Dianna Arnett           | 2017-12-30        | 2017-01-12     | 352           | 4                  | 156.76           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| PB-19210     | Phillip Breyer          | 2017-12-30        | 2016-02-11     | 688           | 2                  | 132.74           | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| RM-19750     | Roland Murray           | 2017-12-30        | 2017-03-06     | 299           | 1                  | 98.35            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| KS-16300     | Karen Seio              | 2017-12-30        | 2017-03-10     | 295           | 3                  | 88.47            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| AR-10570     | Anemone Ratner          | 2017-12-30        | 2016-07-14     | 534           | 1                  | 88.15            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| FW-14395     | Fred Wasserman          | 2017-12-30        | 2017-01-02     | 362           | 3                  | 79.75            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| RE-19405     | Ricardo Emerson         | 2017-12-30        | 2014-12-29     | 1097          | 1                  | 48.36            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| SG-20890     | Susan Gilcrest          | 2017-12-30        | 2017-05-18     | 226           | 3                  | 47.95            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| MG-18205     | Mitch Gastineau         | 2017-12-30        | 2017-04-10     | 264           | 1                  | 16.74            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| CJ-11875     | Carl Jackson            | 2017-12-30        | 2016-12-30     | 365           | 1                  | 16.52            | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| LD-16855     | Lela Donovan            | 2017-12-30        | 2016-06-26     | 552           | 1                  | 5.30             | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-| TS-21085     | Thais Sissman           | 2017-12-30        | 2017-01-07     | 357           | 2                  | 4.83             | 1        | 1        | 1        | 111         | 3                 | EN RIESGO DE ABANDONO       |
-+--------------+-------------------------+-------------------+----------------+---------------+--------------------+------------------+----------+----------+----------+-------------+-------------------+-----------------------------+
-793 rows selected (8.446 seconds)
-0: jdbc:hive2://localhost:10000/default> 
+USE superstore;
+
+WITH clientes AS (
+    SELECT
+        TRIM(customer_id) AS customer_id,
+        MAX(customer_name) AS customer_name,
+        MAX(order_date) AS ultima_compra,
+        COUNT(DISTINCT order_id) AS frecuencia,
+        SUM(sales) AS importe_total
+    FROM superstore_analitica
+    WHERE customer_id IS NOT NULL
+      AND TRIM(customer_id) <> ''
+      AND order_id IS NOT NULL
+      AND TRIM(order_id) <> ''
+      AND order_date IS NOT NULL
+      AND sales > 0
+    GROUP BY TRIM(customer_id)
+),
+referencia AS (
+    SELECT MAX(order_date) AS fecha_referencia
+    FROM superstore_analitica
+),
+combinados AS (
+    SELECT
+        customer_id,
+        customer_name,
+        ultima_compra,
+        frecuencia,
+        importe_total,
+        CAST(NULL AS DATE) AS referencia_global
+    FROM clientes
+
+    UNION ALL
+
+    SELECT
+        CAST(NULL AS STRING),
+        CAST(NULL AS STRING),
+        CAST(NULL AS DATE),
+        CAST(NULL AS BIGINT),
+        CAST(NULL AS DECIMAL(28,4)),
+        fecha_referencia
+    FROM referencia
+),
+con_referencia AS (
+    SELECT
+        *,
+        MAX(referencia_global) OVER () AS fecha_referencia
+    FROM combinados
+),
+metricas AS (
+    SELECT
+        customer_id,
+        customer_name,
+        ultima_compra,
+        frecuencia,
+        importe_total,
+        fecha_referencia,
+        DATEDIFF(fecha_referencia, ultima_compra) AS recencia
+    FROM con_referencia
+    WHERE customer_id IS NOT NULL
+),
+puntuaciones AS (
+    SELECT
+        *,
+        NTILE(5) OVER (
+            ORDER BY recencia DESC, customer_id
+        ) AS r_score,
+        NTILE(5) OVER (
+            ORDER BY frecuencia ASC, customer_id
+        ) AS f_score,
+        NTILE(5) OVER (
+            ORDER BY importe_total ASC, customer_id
+        ) AS m_score
+    FROM metricas
+)
+SELECT
+    customer_id,
+    customer_name,
+    fecha_referencia,
+    ultima_compra,
+    recencia AS recency_dias,
+    frecuencia AS frequency_ordenes,
+    ROUND(importe_total, 2) AS monetary_ventas,
+    r_score,
+    f_score,
+    m_score,
+    CONCAT(
+        CAST(r_score AS STRING),
+        CAST(f_score AS STRING),
+        CAST(m_score AS STRING)
+    ) AS codigo_rfm,
+    r_score + f_score + m_score AS puntuacion_total,
+    CASE
+        WHEN r_score <= 2
+         AND (f_score >= 4 OR m_score >= 4)
+            THEN 'EN RIESGO - ANTES VALIOSO'
+        WHEN r_score <= 2
+            THEN 'EN RIESGO DE ABANDONO'
+        WHEN r_score >= 4
+         AND f_score >= 4
+         AND m_score >= 4
+            THEN 'ALTO VALOR'
+        WHEN f_score >= 4
+            THEN 'RECURRENTE'
+        WHEN r_score >= 4 AND f_score <= 2
+            THEN 'RECIENTE - BAJA FRECUENCIA'
+        ELSE 'CLIENTE EN DESARROLLO'
+    END AS segmento
+FROM puntuaciones
+ORDER BY puntuacion_total DESC, monetary_ventas DESC;
